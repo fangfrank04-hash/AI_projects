@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+*.log
+
+# 环境变量（含 API Key，绝对不能上传）
+.env
+
+# Node
+node_modules/
+
+# Java
+target/
+*.class
+*.jar
+*.war
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 项目依赖文件夹（太大，不上传 git）
+项目依赖/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.bak
+_temp_*/
