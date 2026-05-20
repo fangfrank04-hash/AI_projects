@@ -36,13 +36,6 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("ACCESS_DENIED", e.getMessage()));
     }
 
-    @ExceptionHandler(AIClientException.class)
-    public ResponseEntity<ErrorResponse> handleAIException(AIClientException e) {
-        log.error("AI服务异常", e);
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(new ErrorResponse("AI_SERVICE_ERROR", e.getMessage()));
-    }
-
     @ExceptionHandler(WebClientResponseException.class)
     public ResponseEntity<ErrorResponse> handleWebClientException(WebClientResponseException e) {
         if (e.getStatusCode() == HttpStatus.UNAUTHORIZED) {

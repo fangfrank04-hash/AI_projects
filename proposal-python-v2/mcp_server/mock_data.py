@@ -238,3 +238,44 @@ def update_duty(project_id: str, name: str, duty_name: str, checked: bool) -> di
 def get_user_by_id(user_id: str) -> dict:
     """根据用户ID获取用户信息"""
     return {"success": True, "data": copy.deepcopy(MOCK_USER)}
+
+
+def batch_sync_team(project_id: str, layout: list) -> dict:
+    """
+    批量同步团队数据（消灭 N+1 调用）
+    一次性处理新增成员 + 全量职责同步
+    """
+    current_names = {m["userName"] for m in _team_state}
+    errors = []
+
+    for member in layout:
+        name = member.get("name", "")
+        role = member.get("role", "")
+
+        # 新成员
+        if name and name not in current_names:
+            member_id = _new_id()
+            _team_state.append({
+                "id": member_id,
+                "userId": _new_id(),
+                "userName": name,
+                "roleName": role,
+                "roleIds": [],
+                "responsibilities": []
+            })
+            current_names.add(name)
+
+        # 同步职责
+        duties = member.get("responsibilities", [])
+        for m in _team_state:
+            if m["userName"] == name:
+                m["responsibilities"] = [
+                    {"name": d.get("name", d) if isinstance(d, dict) else d,
+                     "checked": d.get("checked", True) if isinstance(d, dict) else True}
+                    for d in duties
+                ]
+                break
+
+    if errors:
+        return {"success": False, "message": "; ".join(errors), "data": copy.deepcopy(_team_state)}
+    return {"success": True, "message": "批量同步完成", "data": copy.deepcopy(_team_state)}

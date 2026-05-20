@@ -216,22 +216,20 @@ class ProjectAssistantAgent:
 
     @staticmethod
     def _parse_result(text) -> dict:
-        """解析工具返回的文本（JSON 或 Python repr 格式）"""
+        """严谨的强类型防御解析，不使用不安全的 ast.literal_eval"""
+        if not text:
+            return {"success": False, "message": "空数据"}
         if isinstance(text, dict):
             return text
         if isinstance(text, str):
-            import ast
-            for parser in [
-                lambda s: json.loads(s),
-                lambda s: json.loads(s.replace("'", '"')),
-                lambda s: ast.literal_eval(s),
-            ]:
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
                 try:
-                    result = parser(text)
-                    if isinstance(result, dict):
-                        return result
-                except (json.JSONDecodeError, ValueError, SyntaxError):
-                    continue
+                    cleaned = text.replace("'", '"')
+                    return json.loads(cleaned)
+                except json.JSONDecodeError:
+                    return {"success": False, "message": f"数据格式异常: {text[:100]}"}
         return {}
 
     def _build_system_prompt(self) -> str:
@@ -344,10 +342,10 @@ class ProjectAssistantAgent:
         await self._do_fillback()
 
     async def _do_fillback(self):
-        """将 self.draft_project / self.draft_team 持久化到 MCP/Java 后端"""
+        """将 self.draft_project / self.draft_team 持久化到 MCP/Java 后端（批量模式，消灭 N+1）"""
         errors = []
 
-        # 持久化项目基本信息（productNo, productName）
+        # 1. 持久化项目基本信息
         if self.draft_project and self._mcp_update_project:
             try:
                 result = await self._mcp_update_project(
@@ -360,48 +358,22 @@ class ProjectAssistantAgent:
                 if not parsed.get("success"):
                     errors.append(f"项目信息保存失败: {parsed.get('message', '未知错误')}")
             except Exception as e:
-                import traceback
-                print(f"[Agent] _do_fillback update_project error: {e}")
-                traceback.print_exc()
                 errors.append(f"项目信息保存异常: {str(e)}")
 
-        # 持久化团队成员数据（逐个对比并同步）
-        if self.draft_team and self._mcp_get_team:
+        # 2. 团队数据：使用批量接口一次性同步（替代逐条 update_duty 的 N+1 反模式）
+        if self.draft_team and self._mcp_client:
             try:
-                # 获取当前已持久化的团队数据
-                team_result = await self._mcp_get_team(project_id=self.project_id)
-                team_text = self._extract_text_from_response(team_result)
-                team_parsed = self._parse_result(team_text)
-                current_team = []
-                if team_parsed.get("success"):
-                    team_data = team_parsed.get("data", {})
-                    current_team = team_data.get("content", team_data) if isinstance(team_data, dict) else team_data
-
-                # 构建当前成员姓名集合
-                current_names = {m.get("name", m.get("userName", "")) for m in current_team}
-
-                # 团队成员不可删除、不可改角色，只新增 + 同步职责
-                for draft_member in self.draft_team:
-                    dname = draft_member.get("name", "")
-                    drole = draft_member.get("role", "")
-
-                    if dname not in current_names:
-                        # 新成员：直接添加
-                        if self._mcp_add_member:
-                            await self._mcp_add_member(project_id=self.project_id, name=dname, role=drole)
-
-                    # 同步职责（唯一允许的修改）
-                    if self._mcp_update_duty:
-                        dresp = draft_member.get("responsibilities", [])
-                        for r in dresp:
-                            rname = r.get("name", r) if isinstance(r, dict) else r
-                            checked = r.get("checked", True) if isinstance(r, dict) else True
-                            await self._mcp_update_duty(project_id=self.project_id, name=dname, duty_name=rname, checked=checked)
+                batch_func = await self._mcp_client.get_callable_function("batch_sync_team_data")
+                payload = json.dumps(self.draft_team, ensure_ascii=False)
+                result = await batch_func(project_id=self.project_id, team_layout=payload)
+                text = self._extract_text_from_response(result)
+                parsed = self._parse_result(text)
+                if not parsed.get("success"):
+                    errors.append(f"团队批量同步失败: {parsed.get('message', '未知错误')}")
+                elif parsed.get("errors"):
+                    errors.extend(parsed["errors"])
             except Exception as e:
-                import traceback
-                print(f"[Agent] _do_fillback team error: {e}")
-                traceback.print_exc()
-                errors.append(f"团队数据保存异常: {str(e)}")
+                errors.append(f"团队批量同步异常: {str(e)}")
 
         if errors:
             await self._push_event("error", {"message": "回填部分失败: " + "; ".join(errors)})

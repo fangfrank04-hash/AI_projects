@@ -277,6 +277,99 @@ async def update_member_role(project_id: str, name: str, new_role: str) -> str:
 
 
 # ============================================================
+# Tool 9: 批量同步团队数据（消灭 N+1）
+# ============================================================
+@mcp.tool()
+async def batch_sync_team_data(project_id: str, team_layout: str) -> str:
+    """
+    一次性批量同步整个团队的成员和职责数据，替代多次单条更新。
+    参数:
+      project_id   - 项目编号
+      team_layout  - JSON字符串，格式: [{"name":"张三","role":"开发","responsibilities":[{"name":"编码","checked":true},...]}, ...]
+    """
+    try:
+        layout = json.loads(team_layout) if isinstance(team_layout, str) else team_layout
+    except json.JSONDecodeError:
+        return json.dumps({"success": False, "message": "team_layout 不是合法的 JSON"}, ensure_ascii=False)
+
+    if DEV_MODE:
+        from mcp_server.mock_data import batch_sync_team
+        result = batch_sync_team(project_id, layout)
+        if result.get("success") and "data" in result:
+            result["data"] = [_normalize_team_member(m) for m in result["data"]]
+        return json.dumps(result, ensure_ascii=False)
+
+    try:
+        client = _get_java_client()
+        # 先获取当前团队
+        current = await client.safe_call(
+            "/itmp/pmProjectMemberService/findPmProjectMemberList",
+            {"pmProjectId": project_id, "page": 0, "size": 100}
+        )
+        current_names = {m.get("name", m.get("nickname", "")) for m in current.get("content", [])}
+
+        errors = []
+        for member in layout:
+            name = member.get("name", "")
+            role = member.get("role", "")
+
+            # 新成员：添加
+            if name not in current_names and name:
+                try:
+                    await client.safe_call(
+                        "/itmp/pmProjectMemberService/createPmProjectMembers",
+                        {"pmProjectId": project_id, "userIds": [name]}
+                    )
+                    current_names.add(name)
+                except Exception as e:
+                    errors.append(f"添加成员 {name} 失败: {e}")
+                    continue
+
+            # 同步职责
+            duties = member.get("responsibilities", [])
+            if duties:
+                # 在 layout 中查找对应的 role
+                try:
+                    team = await client.safe_call(
+                        "/itmp/pmProjectMemberService/findPmProjectMemberList",
+                        {"pmProjectId": project_id, "page": 0, "size": 100}
+                    )
+                    member_role = None
+                    for m in team.get("content", []):
+                        if m.get("name") == name or m.get("nickname") == name or m.get("userId") == name:
+                            member_role = m.get("role", "")
+                            break
+
+                    if member_role:
+                        duty_names = [d.get("name", d) if isinstance(d, dict) else d for d in duties if d.get("checked", True) if isinstance(d, dict) else True]
+                        if duty_names:
+                            await client.safe_call(
+                                "/portal/abikoleManagerService/updateDuty",
+                                {"rid": member_role, "ids": duty_names, "pid": project_id, "checked": True}
+                            )
+                except Exception as e:
+                    errors.append(f"同步 {name} 的职责失败: {e}")
+
+        # 获取最终结果
+        final = await client.safe_call(
+            "/itmp/pmProjectMemberService/findPmProjectMemberList",
+            {"pmProjectId": project_id, "page": 0, "size": 100}
+        )
+        if "content" in final:
+            final["content"] = [_normalize_team_member(m) for m in final["content"]]
+
+        result = {"success": True, "message": "批量同步完成", "data": final}
+        if errors:
+            result["errors"] = errors
+        return json.dumps(result, ensure_ascii=False)
+
+    except JavaClientError as e:
+        return json.dumps({"success": False, "message": e.message}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"success": False, "message": f"批量同步异常: {str(e)}"}, ensure_ascii=False)
+
+
+# ============================================================
 # Tool 7: 更新成员职责
 # ============================================================
 @mcp.tool()

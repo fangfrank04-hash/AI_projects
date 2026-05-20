@@ -47,6 +47,7 @@ class ChatMessageRequest(BaseModel):
 
 @app.get("/api/chat/stream")
 async def chat_stream(
+    request: Request,
     projectId: str = Query(..., description="项目编号"),
     userName: str = Query(..., description="当前用户姓名"),
     isPM: bool = Query(False, description="是否项目经理")
@@ -54,6 +55,7 @@ async def chat_stream(
     """
     SSE流式端点
     前端通过EventSource连接此端点，建立持久化SSE连接
+    连接断开时自动清理 Agent 资源，防止内存泄漏
     """
     session_id = str(uuid.uuid4())
     queue = asyncio.Queue()
@@ -63,34 +65,43 @@ async def chat_stream(
     await agent.initialize()
     agent_pool[session_id] = agent
 
-    print(f"[SSE] New connection: session_id={session_id}, project={projectId}, user={userName}, isPM={isPM}")
+    print(f"[SSE] Connected: session_id={session_id}, project={projectId}, user={userName}, isPM={isPM}")
 
     async def event_generator():
-        """SSE事件生成器"""
-        # 发送connected事件
-        yield format_sse("connected", {"sessionId": session_id, "status": "ok"})
+        try:
+            yield format_sse("connected", {"sessionId": session_id, "status": "ok"})
+            last_activity = asyncio.get_event_loop().time()
 
-        last_activity = asyncio.get_event_loop().time()
-
-        while True:
-            try:
-                # 等待队列消息，带超时（用于心跳检测）
-                msg = await asyncio.wait_for(queue.get(), timeout=5.0)
-
-                if msg.get("event") == "close":
-                    print(f"[SSE] Connection closed: session_id={session_id}")
+            while True:
+                # 防御性检查：客户端是否已主动断开（刷新页面、关闭标签页等）
+                if await request.is_disconnected():
+                    print(f"[SSE] Client disconnected: session_id={session_id}")
                     break
 
-                # 发送SSE事件
-                yield format_sse(msg["event"], msg["data"])
-                last_activity = asyncio.get_event_loop().time()
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=5.0)
 
-            except asyncio.TimeoutError:
-                # 检查是否需要发送心跳
-                now = asyncio.get_event_loop().time()
-                if now - last_activity >= HEARTBEAT_INTERVAL:
-                    yield format_sse("ping", {"time": int(now)})
-                    last_activity = now
+                    if msg.get("event") == "close":
+                        print(f"[SSE] Connection closed: session_id={session_id}")
+                        break
+
+                    yield format_sse(msg["event"], msg["data"])
+                    last_activity = asyncio.get_event_loop().time()
+
+                except asyncio.TimeoutError:
+                    now = asyncio.get_event_loop().time()
+                    if now - last_activity >= HEARTBEAT_INTERVAL:
+                        yield format_sse("ping", {"time": int(now)})
+                        last_activity = now
+        finally:
+            # 无论何种原因退出（正常关闭、客户端断开、异常），必须清理 Agent 资源
+            print(f"[SSE] Cleaning session: {session_id}")
+            target_agent = agent_pool.pop(session_id, None)
+            if target_agent:
+                try:
+                    await target_agent.close()
+                except Exception as e:
+                    print(f"[SSE] Agent close error ({session_id}): {e}")
 
     return StreamingResponse(
         event_generator(),
