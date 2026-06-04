@@ -30,8 +30,8 @@
 
 **代码示例**：
 ```python
-async def tool_update_project_info(project_id: str, productNo: str = "", productName: str = ""):
-    """更新项目基本信息（仅限productNo和productName，其余字段不可修改）"""
+async def tool_update_project_info(project_id: str, productCode: str = "", productName: str = ""):
+    """更新项目基本信息（仅限productCode和productName，其余字段不可修改）"""
     if not self.is_pm:  # ✅ 权限校验
         return ToolResponse([TextBlock(type="text", text=json.dumps(
             {"success": False, "message": "权限拒绝：只有项目经理可以修改项目信息"}, ensure_ascii=False))])
@@ -68,7 +68,7 @@ async def tool_update_project_info(project_id: str, productNo: str = "", product
 
 **处理逻辑**：
 1. 解析用户意图，提取要修改的字段名
-2. 检查字段白名单（`productNo` 和 `productName`）
+2. 检查字段白名单（`productCode` 和 `productName`）
 3. 如果字段不在白名单中，拦截并回复
 4. **不调用MCP工具**
 
@@ -111,7 +111,7 @@ async def tool_update_project_info(project_id: str, productNo: str = "", product
 **代码示例**：
 ```python
 # 用户指令："把产品编号改成什么？"
-# 解析后发现缺少 productNo 的新值
+# 解析后发现缺少 productCode 的新值
 # 追问确认
 return "请确认：您要将【产品编号】修改为什么值？"
 ```
@@ -225,7 +225,7 @@ return "请确认：您要将【产品编号】修改为什么值？"
 **代码示例**：
 ```python
 try:
-    result = await update_project_func(project_id=project_id, productNo=productNo, productName=productName)
+    result = await update_project_func(project_id=project_id, productCode=productCode, productName=productName)
     await self._on_write_success(result, "update_project", "projectData")
     return result
 except Exception as e:
@@ -366,7 +366,7 @@ async def call_mcp_tool_with_retry(tool_func, max_retries=2, *args, **kwargs):
    ```
    [Agent] Skill loaded: project_info_manager
    [Agent] MCP read tools registered (auto-discovered)
-   [Agent] 更新项目信息成功：project_id=P001, productNo=ABC-2026-001
+   [Agent] 更新项目信息成功：project_id=P001, productCode=ABC-2026-001
    ```
 
 2. **WARNING**：潜在问题记录

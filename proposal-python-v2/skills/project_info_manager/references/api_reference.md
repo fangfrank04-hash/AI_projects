@@ -24,7 +24,7 @@
     "reqDept": "需求相关部门",
     "changeReq": "变更需求编号",
     "pmName": "项目经理姓名",
-    "productNo": "产品编号",
+    "productCode": "产品编号",
     "productName": "产品名称"
   }
 }
@@ -37,17 +37,17 @@ result = await get_project_info(project_id="P001")
 
 **注意事项**：
 - 所有用户都可以调用此工具
-- 返回的数据中，只有 `productNo` 和 `productName` 可编辑
+- 返回的数据中，只有 `productCode` 和 `productName` 可编辑
 
 ---
 
 ### 2. update_project_info
 
-**功能**：修改项目基本信息（仅限productNo和productName）
+**功能**：修改项目基本信息（仅限productCode和productName）
 
 **参数**：
 - `project_id` (string, 必需)：项目ID
-- `productNo` (string, 可选)：新产品编号
+- `productCode` (string, 可选)：新产品编号
 - `productName` (string, 可选)：新产品名称
 
 **返回**：
@@ -56,7 +56,7 @@ result = await get_project_info(project_id="P001")
   "success": true,
   "message": "更新成功",
   "data": {
-    "productNo": "ABC-2026-001",
+    "productCode": "ABC-2026-001",
     "productName": "新核心系统"
   }
 }
@@ -66,7 +66,7 @@ result = await get_project_info(project_id="P001")
 ```python
 result = await update_project_info(
     project_id="P001",
-    productNo="ABC-2026-001",
+    productCode="ABC-2026-001",
     productName="新核心系统"
 )
 ```
@@ -76,7 +76,7 @@ result = await update_project_info(
 - 如果权限不足，返回：`{"success": false, "message": "权限拒绝：只有项目经理可以修改项目信息"}`
 
 **可编辑字段**：
-- ✅ `productNo` — 产品编号
+- ✅ `productCode` — 产品编号
 - ✅ `productName` — 产品名称
 
 **不可编辑字段**（调用时会报错）：
@@ -309,7 +309,7 @@ project_result = await get_project_info(project_id="P001")
 if project_result["success"]:
     project_data = project_result["data"]
     print(f"项目名称：{project_data['name']}")
-    print(f"产品编号：{project_data['productNo']}")
+    print(f"产品编号：{project_data['productCode']}")
     print(f"产品名称：{project_data['productName']}")
 
 # 步骤2：获取团队成员列表
@@ -326,7 +326,7 @@ if team_result["success"]:
 # 修改产品编号
 result = await update_project_info(
     project_id="P001",
-    productNo="ABC-2026-001"
+    productCode="ABC-2026-001"
 )
 
 if result["success"]:

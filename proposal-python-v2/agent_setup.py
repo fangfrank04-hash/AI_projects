@@ -1,11 +1,15 @@
 """
-Agent初始化模块
-创建并配置ReActAgent，使用 AgentScope 原生 MCP 集成连接独立 MCP HTTP 服务
+Agent初始化模块 — v3.0 意图路由 + 多Agent架构
+Router: 千问轻量模型做意图分类 → 分发给专职 Worker Agent
+ProjectAgent: 项目基本信息查看/编辑
+TeamAgent: 团队职责维护
 """
 import os
 import asyncio
 import json
-from typing import Optional
+from typing import Optional, Literal
+
+from pydantic import BaseModel
 
 from agentscope.agent import ReActAgent
 from agentscope.model import DashScopeChatModel
@@ -18,15 +22,19 @@ from agentscope.mcp import HttpStatefulClient
 from config import Config
 
 
+# ============================================================
+# 意图路由 Schema（AgentScope structured_model 规范）
+# ============================================================
+class IntentRoute(BaseModel):
+    intent: Literal["project_info", "team_management", "chat", "fillback"] = "chat"
+
+
 class ProjectAssistantAgent:
     """
-    项目助手Agent
-    负责处理项目基本信息和团队职责维护的所有AI交互
-    读操作 → AgentScope 原生 MCP 工具（自动发现）
-    写操作 → 带权限校验 + SSE推送的包装函数
+    项目助手Agent — v3.0 多Agent架构
+    Router → Worker 分发，每个 Worker 只绑定自己领域的工具
     """
 
-    # MCP 写工具名称列表（需权限校验，不由原生MCP自动注册）
     _WRITE_TOOLS = [
         "update_project_info",
         "add_team_member",
@@ -38,159 +46,306 @@ class ProjectAssistantAgent:
         self.user_name = user_name
         self.is_pm = is_pm
         self.queue = queue
-        self.agent: Optional[ReActAgent] = None
         self.draft_project: Optional[dict] = None
         self.draft_team: Optional[list] = None
         self._mcp_client: Optional[HttpStatefulClient] = None
-        # MCP 工具函数引用（初始化时缓存，fillback 时复用）
         self._mcp_update_project = None
         self._mcp_add_member = None
         self._mcp_update_duty = None
         self._mcp_get_team = None
+        # 多 Agent 实例
+        self._router: Optional[ReActAgent] = None
+        self._project_agent: Optional[ReActAgent] = None
+        self._team_agent: Optional[ReActAgent] = None
+        self._lock = asyncio.Lock()
+        self._closed = False
 
+    @property
+    def is_busy(self) -> bool:
+        return self._lock.locked()
+
+    # ============================================================
+    # 初始化
+    # ============================================================
     async def initialize(self):
-        """初始化Agent：加载Skills、注册MCP工具、创建ReActAgent"""
-        toolkit = Toolkit()
-
-        # 1. 加载Skills（步骤1-5 + 团队职责，V1启用步骤1+团队职责，其余为V2占位）
-        skill_names = [
-            "project_info_manager",
-            "team_duty_manager",
-            "control_plan_manager",
-            "schedule_manager",
-            "resource_plan_manager",
-            "quality_plan_manager",
-        ]
-        skills_dir = os.path.join(os.path.dirname(__file__), "skills")
-        for name in skill_names:
-            skill_path = os.path.join(skills_dir, name)
-            if os.path.exists(os.path.join(skill_path, "SKILL.md")):
-                toolkit.register_agent_skill(skill_path)
-                print(f"[Agent] Skill loaded: {name}")
-            else:
-                print(f"[Agent] Warning: Skill not found: {name}")
-
-        # 2. 创建 AgentScope 原生 MCP 客户端（Streamable HTTP）
+        """初始化 MCP 客户端、Router、Worker Agent，加载预览数据"""
+        # 1. MCP 客户端
         self._mcp_client = HttpStatefulClient(
             name="zhongzhai_java_gateway",
             url=Config.MCP_SERVER_URL,
             transport="streamable_http",
         )
-
-        # 3. 注册 MCP 读工具（自动发现，写工具禁用后用包装函数替代）
         await self._mcp_client.connect()
-        await toolkit.register_mcp_client(
+
+        # 2. 缓存 MCP 工具函数（fillback + write wrapper 复用）
+        self._mcp_update_project = await self._mcp_client.get_callable_function("update_project_info")
+        self._mcp_add_member = await self._mcp_client.get_callable_function("add_team_member")
+        self._mcp_update_duty = await self._mcp_client.get_callable_function("update_member_duty")
+        self._mcp_get_team = await self._mcp_client.get_callable_function("get_team_members_list")
+
+        # 3. 创建 Router（千问轻量模型，只做分类，stream=False）
+        self._router = ReActAgent(
+            name="IntentRouter",
+            sys_prompt=(
+                "你是意图路由器。分析用户输入，返回以下分类之一:\n"
+                "- project_info: 查看/修改项目基本信息（产品编号、产品名称、项目名称、部门、级别等）\n"
+                "- team_management: 查看/修改团队成员、职责勾选、新增成员\n"
+                "- fillback: 一键回填、保存、提交、持久化\n"
+                "- chat: 日常聊天、问候、自我介绍、询问功能\n"
+                "只输出分类标签，不要回答用户问题。"
+            ),
+            model=DashScopeChatModel(
+                model_name="qwen-plus",
+                api_key=Config.DASHSCOPE_API_KEY,
+                stream=False,
+            ),
+            formatter=DashScopeChatFormatter(),
+            max_iters=1,
+        )
+        print("[Agent] Router initialized (qwen-turbo)")
+
+        # 4. 创建 ProjectAgent（项目信息专属工具）
+        await self._init_project_agent()
+
+        # 5. 创建 TeamAgent（团队职责专属工具）
+        await self._init_team_agent()
+
+        print(f"[Agent] Multi-Agent initialized: project={self.project_id}, user={self.user_name}")
+
+        # 6. 加载预览数据
+        await self._load_and_push_preview()
+
+    # ============================================================
+    # Worker Agent 初始化
+    # ============================================================
+    async def _init_project_agent(self):
+        """初始化项目信息专职 Agent"""
+        ptk = Toolkit()
+        skills_dir = os.path.join(os.path.dirname(__file__), "skills")
+        skill_path = os.path.join(skills_dir, "project_info_manager")
+        if os.path.exists(os.path.join(skill_path, "SKILL.md")):
+            ptk.register_agent_skill(skill_path)
+
+        # MCP 读工具：排除团队写工具，保留项目相关的读+写
+        await ptk.register_mcp_client(
             self._mcp_client,
-            disable_funcs=list(self._WRITE_TOOLS),
+            disable_funcs=["add_team_member", "update_member_duty"],
             namesake_strategy="skip",
         )
-        print(f"[Agent] MCP read tools registered (auto-discovered)")
 
-        # 4. 注册写工具包装函数（权限校验 + SSE推送）
-        await self._register_write_tools(toolkit)
+        # 写工具包装：update_project_info（带权限）
+        _update_func = self._mcp_update_project
 
-        # 5. 创建ReActAgent
-        sys_prompt = self._build_system_prompt()
+        async def _tool_update_project(project_id: str, productCode: str = "", productName: str = ""):
+            if not self.is_pm:
+                return ToolResponse([TextBlock(type="text", text=json.dumps(
+                    {"success": False, "message": "权限拒绝：只有项目经理可以修改项目信息"}, ensure_ascii=False))])
+            try:
+                result = await _update_func(project_id=project_id, productCode=productCode, productName=productName)
+                await self._on_write_success(result, "update_project", "projectData")
+                return result
+            except Exception as e:
+                return ToolResponse([TextBlock(type="text", text=json.dumps(
+                    {"success": False, "message": f"操作失败: {str(e)}"}, ensure_ascii=False))])
 
-        self.agent = ReActAgent(
-            name="project_assistant",
-            sys_prompt=sys_prompt,
+        ptk.register_tool_function(_tool_update_project)
+
+        self._project_agent = ReActAgent(
+            name="ProjectAgent",
+            sys_prompt=(
+                f"你是项目基本信息维护助手。当前项目: {self.project_id}，操作用户: {self.user_name}，"
+                f"{'项目经理' if self.is_pm else '普通成员'}。\n"
+                "职责: 查看/编辑项目基本信息。只有 productCode 和 productName 可修改。\n"
+                "规则: 项目名称、部门、级别等字段不可修改，如用户要求修改请礼貌拒绝。\n"
+                "非项目经理只能查看，任何修改请求都拒绝。"
+            ),
             model=DashScopeChatModel(
                 model_name=Config.LLM_MODEL,
                 api_key=Config.DASHSCOPE_API_KEY,
                 stream=True,
             ),
             formatter=DashScopeChatFormatter(),
-            toolkit=toolkit,
+            toolkit=ptk,
             memory=InMemoryMemory(),
             max_iters=10,
         )
+        print("[Agent] ProjectAgent initialized")
 
-        print(f"[Agent] ReActAgent initialized for project={self.project_id}, user={self.user_name}")
+    async def _init_team_agent(self):
+        """初始化团队职责专职 Agent"""
+        ttk = Toolkit()
+        skills_dir = os.path.join(os.path.dirname(__file__), "skills")
+        skill_path = os.path.join(skills_dir, "team_duty_manager")
+        if os.path.exists(os.path.join(skill_path, "SKILL.md")):
+            ttk.register_agent_skill(skill_path)
 
-        # 6. 加载初始数据并推送预览
-        await self._load_and_push_preview()
+        # MCP 读工具：排除项目写工具，保留团队相关的读+写
+        await ttk.register_mcp_client(
+            self._mcp_client,
+            disable_funcs=["update_project_info"],
+            namesake_strategy="skip",
+        )
 
-    async def _register_write_tools(self, toolkit: Toolkit):
-        """注册写工具包装函数——通过 AgentScope MCP 客户端调用，附带权限校验和SSE推送"""
+        # 写工具包装（带权限）
+        _add_func = self._mcp_add_member
+        _duty_func = self._mcp_update_duty
 
-        # 获取 MCP 工具的可调用函数，同时缓存到实例变量供 fillback 复用
-        self._mcp_update_project = await self._mcp_client.get_callable_function("update_project_info")
-        self._mcp_add_member = await self._mcp_client.get_callable_function("add_team_member")
-        self._mcp_update_duty = await self._mcp_client.get_callable_function("update_member_duty")
-        self._mcp_get_team = await self._mcp_client.get_callable_function("get_team_members_list")
-
-        update_project_func = self._mcp_update_project
-        add_member_func = self._mcp_add_member
-        update_duty_func = self._mcp_update_duty
-
-        async def tool_update_project_info(project_id: str, productNo: str = "", productName: str = ""):
-            """更新项目基本信息（仅限productNo和productName，其余字段不可修改）"""
-            if not self.is_pm:
-                return ToolResponse([TextBlock(type="text", text=json.dumps(
-                    {"success": False, "message": "权限拒绝：只有项目经理可以修改项目信息"}, ensure_ascii=False))])
-            try:
-                result = await update_project_func(project_id=project_id, productNo=productNo, productName=productName)
-                await self._on_write_success(result, "update_project", "projectData")
-                return result
-            except Exception as e:
-                import traceback
-                print(f"[Agent] tool_update_project_info 调用失败: {e}")
-                traceback.print_exc()
-                return ToolResponse([TextBlock(type="text", text=json.dumps(
-                    {"success": False, "message": f"操作失败: {str(e)}"}, ensure_ascii=False))])
-
-        async def tool_add_team_member(project_id: str, name: str, role: str):
-            """添加团队成员"""
+        async def _tool_add_member(project_id: str, name: str, role: str):
             if not self.is_pm:
                 return ToolResponse([TextBlock(type="text", text=json.dumps(
                     {"success": False, "message": "权限拒绝：只有项目经理可以添加成员"}, ensure_ascii=False))])
             try:
-                result = await add_member_func(project_id=project_id, name=name, role=role)
+                result = await _add_func(project_id=project_id, name=name, role=role)
                 await self._on_write_success(result, "update_team", "teamData")
                 return result
             except Exception as e:
-                import traceback
-                print(f"[Agent] tool_add_team_member 调用失败: {e}")
-                traceback.print_exc()
                 return ToolResponse([TextBlock(type="text", text=json.dumps(
                     {"success": False, "message": f"操作失败: {str(e)}"}, ensure_ascii=False))])
 
-        async def tool_delete_team_member(project_id: str, name: str):
-            """删除团队成员（已禁用：团队成员不可删除）"""
-            return ToolResponse([TextBlock(type="text", text=json.dumps(
-                {"success": False, "message": "团队成员不可删除，只能通过勾选/取消职责来管理。如需调整人员，请联系管理员。"}, ensure_ascii=False))])
-
-        async def tool_update_member_role(project_id: str, name: str, new_role: str):
-            """更新团队成员角色名称（已禁用：角色不可修改）"""
-            return ToolResponse([TextBlock(type="text", text=json.dumps(
-                {"success": False, "message": "团队角色由系统维护，不可在此修改。"}, ensure_ascii=False))])
-
-        async def tool_update_member_duty(project_id: str, name: str, duty_name: str, checked: bool):
-            """为团队成员勾选或取消勾选职责"""
+        async def _tool_update_duty(project_id: str, name: str, duty_name: str, checked: bool):
             if not self.is_pm:
                 return ToolResponse([TextBlock(type="text", text=json.dumps(
                     {"success": False, "message": "权限拒绝：只有项目经理可以修改职责"}, ensure_ascii=False))])
             try:
-                result = await update_duty_func(project_id=project_id, name=name, duty_name=duty_name, checked=checked)
+                result = await _duty_func(project_id=project_id, name=name, duty_name=duty_name, checked=checked)
                 await self._on_write_success(result, "update_team", "teamData")
                 return result
             except Exception as e:
-                import traceback
-                print(f"[Agent] tool_update_member_duty 调用失败: {e}")
-                traceback.print_exc()
                 return ToolResponse([TextBlock(type="text", text=json.dumps(
                     {"success": False, "message": f"操作失败: {str(e)}"}, ensure_ascii=False))])
 
-        # 注册到Toolkit（使用与 MCP Server 一致的名称）
-        toolkit.register_tool_function(tool_update_project_info)
-        toolkit.register_tool_function(tool_add_team_member)
-        toolkit.register_tool_function(tool_delete_team_member)
-        toolkit.register_tool_function(tool_update_member_role)
-        toolkit.register_tool_function(tool_update_member_duty)
+        async def _tool_delete_member(project_id: str, name: str):
+            return ToolResponse([TextBlock(type="text", text=json.dumps(
+                {"success": False, "message": "团队成员不可删除，只能通过勾选/取消职责来管理。"}, ensure_ascii=False))])
 
-    async def _on_write_success(self, tool_response: ToolResponse, event_type: str, data_key: str):
-        """写操作成功后：解析结果、更新本地缓存、推送SSE事件"""
+        async def _tool_update_role(project_id: str, name: str, new_role: str):
+            return ToolResponse([TextBlock(type="text", text=json.dumps(
+                {"success": False, "message": "团队角色由系统维护，不可在此修改。"}, ensure_ascii=False))])
+
+        ttk.register_tool_function(_tool_add_member)
+        ttk.register_tool_function(_tool_update_duty)
+        ttk.register_tool_function(_tool_delete_member)
+        ttk.register_tool_function(_tool_update_role)
+
+        self._team_agent = ReActAgent(
+            name="TeamAgent",
+            sys_prompt=(
+                f"你是团队职责维护助手。当前项目: {self.project_id}，操作用户: {self.user_name}，"
+                f"{'项目经理' if self.is_pm else '普通成员'}。\n"
+                "职责: 查看团队成员、添加成员、勾选/取消职责。\n"
+                "规则: 成员角色和姓名不可修改或删除，只有职责可勾选。\n"
+                "非项目经理只能查看，任何修改请求都拒绝。"
+            ),
+            model=DashScopeChatModel(
+                model_name=Config.LLM_MODEL,
+                api_key=Config.DASHSCOPE_API_KEY,
+                stream=True,
+            ),
+            formatter=DashScopeChatFormatter(),
+            toolkit=ttk,
+            memory=InMemoryMemory(),
+            max_iters=10,
+        )
+        print("[Agent] TeamAgent initialized")
+
+    # ============================================================
+    # 意图路由 → Worker 分发
+    # ============================================================
+    async def _route(self, message: str) -> str:
+        """意图分类（兼容千问模型，structured_model 优先，关键词+文本解析兜底）"""
+        # 快速关键词匹配（零延迟，不消耗 Token）
+        msg_lower = message.lower()
+        if any(w in msg_lower for w in ["回填", "保存", "提交", "持久化"]):
+            return "fillback"
+        # 日常聊天关键词
+        if any(w in msg_lower for w in ["你好", "谢谢", "你是谁", "介绍一下", "帮助", "能做什么"]):
+            return "chat"
+
+        # structured_model 路由
+        msg = Msg(name="user", content=message, role="user")
+        try:
+            res = await self._router(msg, structured_model=IntentRoute)
+            if hasattr(res, "metadata") and res.metadata:
+                intent = res.metadata.get("intent")
+                if intent:
+                    print(f"[Router] structured_model → {intent}")
+                    return intent
+        except Exception as e:
+            print(f"[Router] structured_model failed: {e}")
+
+        # 文本解析回退
+        try:
+            text = self._extract_text_from_response(res) if 'res' in dir() else ""
+            t = text.lower()
+            if "project_info" in t or "项目信息" in t:
+                return "project_info"
+            if "team_management" in t or "团队" in t:
+                return "team_management"
+            if "fillback" in t:
+                return "fillback"
+            # 最后用消息内容兜底
+            ml = message.lower()
+            if any(w in ml for w in ["项目信息", "项目基本", "产品编号", "产品名称", "项目级别", "项目名称"]):
+                return "project_info"
+            if any(w in ml for w in ["成员", "团队", "职责", "添加", "勾选", "取消"]):
+                return "team_management"
+            print(f"[Router] text fallback: '{text[:80]}'")
+        except Exception:
+            pass
+        return "chat"
+
+    # ============================================================
+    # 消息处理（加锁 + 路由分发）
+    # ============================================================
+    async def handle_message(self, message: str):
+        """处理用户消息（加锁 + 意图路由 + Agent 分发）"""
+        if message == "__FILLBACK__":
+            await self._handle_fillback()
+            return
+
+        async with self._lock:
+            if self._closed:
+                await self._push_event("error", {"message": "会话已关闭，请刷新页面重新连接"})
+                return
+
+            try:
+                # 1. 意图路由
+                intent = await self._route(message)
+                print(f"[Agent] Intent: {intent} | message: {message[:50]}...")
+
+                # 2. 分发
+                user_msg = Msg(name="user", content=message, role="user")
+
+                if intent == "project_info":
+                    response = await self._project_agent(user_msg)
+                elif intent == "team_management":
+                    response = await self._team_agent(user_msg)
+                elif intent == "fillback":
+                    await self._handle_fillback()
+                    return
+                else:
+                    # chat: 直接返回友好回复，不调 Agent
+                    await self._push_event("text", {
+                        "content": f"您好，{self.user_name}！我是项目AI助手。您可以对我说：查看项目信息、修改产品编号、添加团队成员、勾选职责等。"
+                    })
+                    return
+
+                # 3. 推送 Worker 的回复
+                if response:
+                    text = self._extract_text_from_response(response)
+                    if text:
+                        await self._push_event("text", {"content": text})
+
+            except Exception as e:
+                import traceback
+                print(f"[Agent] Error: {e}")
+                traceback.print_exc()
+                await self._push_event("error", {"message": f"处理失败: {str(e)}"})
+
+    # ============================================================
+    # 写操作回调 + 解析工具（保持原样）
+    # ============================================================
+    async def _on_write_success(self, tool_response, event_type: str, data_key: str):
         text = self._extract_text_from_response(tool_response)
         parsed = self._parse_result(text)
         if parsed.get("success"):
@@ -203,12 +358,15 @@ class ProjectAssistantAgent:
                 push_data = self.draft_team
             asyncio.create_task(self._push_event(event_type, {data_key: push_data}))
         else:
-            print(f"[Agent] _on_write_success: 操作失败, event={event_type}, response={text[:300]}")
+            print(f"[Agent] _on_write_success failed: {text[:200]}")
 
     @staticmethod
-    def _extract_text_from_response(response: ToolResponse) -> str:
-        """从 ToolResponse 中提取文本内容"""
-        if response and response.content:
+    def _extract_text_from_response(response) -> str:
+        if response is None:
+            return ""
+        if isinstance(response, str):
+            return response
+        if hasattr(response, "content") and response.content:
             for block in response.content:
                 if isinstance(block, dict) and block.get("type") == "text":
                     return block.get("text", "")
@@ -216,7 +374,6 @@ class ProjectAssistantAgent:
 
     @staticmethod
     def _parse_result(text) -> dict:
-        """严谨的强类型防御解析，不使用不安全的 ast.literal_eval"""
         if not text:
             return {"success": False, "message": "空数据"}
         if isinstance(text, dict):
@@ -226,148 +383,76 @@ class ProjectAssistantAgent:
                 return json.loads(text)
             except json.JSONDecodeError:
                 try:
-                    cleaned = text.replace("'", '"')
-                    return json.loads(cleaned)
+                    return json.loads(text.replace("'", '"'))
                 except json.JSONDecodeError:
                     return {"success": False, "message": f"数据格式异常: {text[:100]}"}
         return {}
 
-    def _build_system_prompt(self) -> str:
-        """构建系统提示词"""
-        return f"""你是一位专业的项目管理AI助手，帮助项目经理维护项目基本信息和团队职责。
-
-## 当前上下文
-- 项目编号: {self.project_id}
-- 当前用户: {self.user_name}
-- 是否项目经理: {"是" if self.is_pm else "否"}
-
-## 可用工具
-1. get_project_info(project_id) — 获取项目基本信息
-2. update_project_info(project_id, productNo, productName) — 更新项目信息（仅限productNo和productName）
-3. get_team_members_list(project_id) — 获取团队成员列表
-4. add_team_member(project_id, name, role) — 添加团队成员
-5. update_member_duty(project_id, name, duty_name, checked) — 勾选/取消职责
-
-## 权限规则
-- 只有项目经理（isPM=true）可以修改数据
-- 项目基本信息中只有productNo（产品编号）和productName（产品名称）可修改
-- 不要修改项目名称、立项部门、项目级别等不可编辑字段——如果用户要求修改这些，请礼貌拒绝
-- 非项目经理只能查看数据，任何修改请求都拒绝
-- 团队成员不可删除，角色和姓名不可修改，只有职责（responsibilities）可以勾选/取消勾选
-
-## 工作方式
-1. 先分析用户意图（修改项目信息？修改团队？日常聊天？查看数据？）
-2. 获取最新数据（如需要）
-3. 执行对应工具操作
-4. 向用户报告操作结果
-5. 如果是日常聊天（打招呼、自我介绍、问问题），用自然语言回复，不调用工具
-
-## 回复风格
-- 专业、简洁、友好
-- 操作成功：明确告知修改了什么
-- 权限拒绝：礼貌说明原因
-- 字段拦截：解释只有产品编号和产品名称可修改
-"""
-
+    # ============================================================
+    # 预览加载 + 回填（保持原样）
+    # ============================================================
     async def _load_and_push_preview(self):
-        """加载初始数据并通过SSE推送预览事件"""
-        # 使用 AgentScope MCP 客户端获取数据
         get_project = await self._mcp_client.get_callable_function("get_project_info")
         project_result = await get_project(project_id=self.project_id)
         text = self._extract_text_from_response(project_result)
-        project_parsed = self._parse_result(text)
-        self.draft_project = project_parsed.get("data", {})
+        self.draft_project = self._parse_result(text).get("data", {})
 
         get_team = await self._mcp_client.get_callable_function("get_team_members_list")
         team_result = await get_team(project_id=self.project_id)
         text = self._extract_text_from_response(team_result)
-        team_parsed = self._parse_result(text)
-        team_data = team_parsed.get("data", {})
+        team_data = self._parse_result(text).get("data", {})
         self.draft_team = team_data.get("content", team_data) if isinstance(team_data, dict) else team_data
 
-        # 推送预览事件
-        await self._push_event("preview", {
-            "projectData": self.draft_project,
-            "teamData": self.draft_team
-        })
+        await self._push_event("preview", {"projectData": self.draft_project, "teamData": self.draft_team})
 
-        # 推送问候语
         greeting = f"您好，{self.user_name}！我是您的项目AI助手。"
         if not self.is_pm:
             greeting += "（您当前以项目成员身份查看，无编辑权限）"
         else:
             greeting += "目前支持为您自动解析与填写【项目基本信息】及【团队职责】。"
-
         await self._push_event("text", {"content": greeting})
 
-    async def handle_message(self, message: str):
-        """处理用户消息"""
-        if message == "__FILLBACK__":
-            await self._handle_fillback()
-            return
-
-        try:
-            msg = Msg(name="user", content=message, role="user")
-            response = await self.agent(msg)
-
-            if response and response.content:
-                text = self._extract_text_from_response(response)
-                if text:
-                    await self._push_event("text", {"content": text})
-        except Exception as e:
-            import traceback
-            print(f"[Agent] Error handling message: {e}")
-            traceback.print_exc()
-            await self._push_event("error", {"message": f"处理失败: {str(e)}"})
-
     async def handle_fillback_with_data(self, draft_project_data: dict = None, draft_team_data: list = None):
-        """接收前端预览面板数据并执行持久化（由 /api/chat/fillback 调用）"""
-        if not self.is_pm:
-            await self._push_event("error", {"message": "权限拒绝：只有项目经理可以执行回填"})
-            return
-
-        # 用前端传来的最新数据更新本地缓存
-        if draft_project_data is not None:
-            self.draft_project = draft_project_data
-        if draft_team_data is not None:
-            self.draft_team = draft_team_data
-
-        await self._do_fillback()
+        async with self._lock:
+            if self._closed:
+                await self._push_event("error", {"message": "会话已关闭，请刷新页面重新连接"})
+                return
+            if not self.is_pm:
+                await self._push_event("error", {"message": "权限拒绝：只有项目经理可以执行回填"})
+                return
+            if draft_project_data is not None:
+                self.draft_project = draft_project_data
+            if draft_team_data is not None:
+                self.draft_team = draft_team_data
+            await self._do_fillback()
 
     async def _handle_fillback(self):
-        """处理一键回填指令（旧版兼容：直接用后端缓存的数据）"""
         if not self.is_pm:
             await self._push_event("error", {"message": "权限拒绝：只有项目经理可以执行回填"})
             return
         await self._do_fillback()
 
     async def _do_fillback(self):
-        """将 self.draft_project / self.draft_team 持久化到 MCP/Java 后端（批量模式，消灭 N+1）"""
         errors = []
-
-        # 1. 持久化项目基本信息
         if self.draft_project and self._mcp_update_project:
             try:
                 result = await self._mcp_update_project(
                     project_id=self.project_id,
-                    productNo=self.draft_project.get("productNo", ""),
-                    productName=self.draft_project.get("productName", "")
+                    productCode=self.draft_project.get("productCode", ""),
+                    productName=self.draft_project.get("productName", ""),
                 )
-                text = self._extract_text_from_response(result)
-                parsed = self._parse_result(text)
+                parsed = self._parse_result(self._extract_text_from_response(result))
                 if not parsed.get("success"):
                     errors.append(f"项目信息保存失败: {parsed.get('message', '未知错误')}")
             except Exception as e:
                 errors.append(f"项目信息保存异常: {str(e)}")
 
-        # 2. 团队数据：使用批量接口一次性同步（替代逐条 update_duty 的 N+1 反模式）
         if self.draft_team and self._mcp_client:
             try:
                 batch_func = await self._mcp_client.get_callable_function("batch_sync_team_data")
                 payload = json.dumps(self.draft_team, ensure_ascii=False)
                 result = await batch_func(project_id=self.project_id, team_layout=payload)
-                text = self._extract_text_from_response(result)
-                parsed = self._parse_result(text)
+                parsed = self._parse_result(self._extract_text_from_response(result))
                 if not parsed.get("success"):
                     errors.append(f"团队批量同步失败: {parsed.get('message', '未知错误')}")
                 elif parsed.get("errors"):
@@ -384,14 +469,10 @@ class ProjectAssistantAgent:
             })
 
     async def _push_event(self, event_type: str, data: dict):
-        """推送SSE事件到队列"""
-        await self.queue.put({
-            "event": event_type,
-            "data": data
-        })
+        await self.queue.put({"event": event_type, "data": data})
 
     async def close(self):
-        """关闭 MCP 客户端连接"""
+        self._closed = True
         if self._mcp_client:
             try:
                 await self._mcp_client.close()

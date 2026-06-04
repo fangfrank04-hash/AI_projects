@@ -15,7 +15,7 @@ metadata:
 ## 核心原则
 
 - 只允许项目经理（从系统提示词判断 isPM）修改数据，普通成员只读
-- 项目基本信息中 **仅 productNo（产品编号）和 productName（产品名称）可编辑**
+- 项目基本信息中 **仅 productCode（产品编号）和 productName（产品名称）可编辑**
 - 项目名称、立项部门、项目级别、需求编号等字段**不可修改**——拦截并解释
 - 团队成员 role/name 不可修改或删除，只有 responsibilities 可以通过勾选/取消切换
 - 任何修改操作后，重新获取完整数据推送给前端确认
@@ -26,7 +26,7 @@ metadata:
 | 工具名 | 用途 | 关键参数 |
 |--------|------|----------|
 | get_project_info | 获取项目基本信息 | project_id |
-| update_project_info | 修改产品编号/产品名称 | project_id, productNo?, productName? |
+| update_project_info | 修改产品编号/产品名称 | project_id, productCode?, productName? |
 | get_team_members_list | 获取团队成员列表 | project_id |
 | add_team_member | 添加新成员 | project_id, name, role |
 | update_member_duty | 勾选/取消职责 | project_id, name, duty_name, checked |
@@ -38,8 +38,8 @@ metadata:
 收到用户指令后，首先判断意图类型：
 
 **类型A — 修改项目基本信息**
-- 触发词：产品编号、产品名称、改成、修改产品、productNo、productName
-- 字段白名单：只有 productNo 和 productName 可以修改
+- 触发词：产品编号、产品名称、改成、修改产品、productCode、productName
+- 字段白名单：只有 productCode 和 productName 可以修改
 - 字段黑名单：项目名称(name)、部门(dept)、级别(level)、基准需求编号(baseReq)、需求部门(reqDept)、变更需求编号(changeReq)、项目经理(pmName) → 拦截
 - 拦截话术："💡 抱歉，系统规定除【产品编号】和【产品名称】外，其他项目基本信息不可在此修改。如需修改，请联系管理员。"
 - 缺失关键信息时追问："请确认：您要将【哪个字段】修改为什么值？"
@@ -66,7 +66,7 @@ metadata:
 
 根据意图类型执行对应操作：
 
-- 修改产品编号 → update_project_info(project_id, productNo="新值")
+- 修改产品编号 → update_project_info(project_id, productCode="新值")
 - 修改产品名称 → update_project_info(project_id, productName="新值")
 - 添加成员 → add_team_member(project_id, name="姓名", role="角色")
 - 勾选职责 → update_member_duty(project_id, name="姓名", duty_name="职责名", checked=true)
@@ -81,7 +81,7 @@ metadata:
 ## 权限规则
 
 - isPM=false：对所有编辑请求返回"权限拒绝：您非项目经理，只能查看数据。"
-- isPM=true：可修改 productNo/productName 和团队数据
+- isPM=true：可修改 productCode/productName 和团队数据
 - 修改被拦截字段：使用白名单话术解释
 - 修改 role/name：拒绝（团队成员不可删除或修改，只能勾选职责）
 - 删除成员：拒绝（提示"团队成员不可删除，只能通过勾选/取消职责来管理"）
@@ -90,7 +90,7 @@ metadata:
 ## 可编辑字段参考
 
 项目基本信息中 **允许编辑**：
-- productNo — 产品编号
+- productCode — 产品编号
 - productName — 产品名称
 
 **不允许编辑（拦截）**：

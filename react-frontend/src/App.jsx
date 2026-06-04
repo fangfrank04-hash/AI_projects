@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import sseClient from './api/sseClient';
+import sseClient from './api/sseClient';   // 模式1（保留备用）
+import streamClient from './api/streamClient'; // 模式3（当前使用）
 import {
   ChevronRight,
   MessageSquare,
@@ -121,67 +122,46 @@ const AIChatbot = ({
     setDraftResourceData(null);
     setDraftQualityData(null);
 
-    sseClient.connect(
-      { projectId: projectData.id, userName: currentUser, isPM: isCurrentUserPM },
-      {
-        onConnected: (data) => {
-          setSessionId(data.sessionId);
-          setSseConnected(true);
-        },
-        onPreview: (data) => {
-          setDraftProjectData(data.projectData);
-          setDraftTeamData(data.teamData);
-          // 初始加载时同步到真实表单（后续修改只更新 draft，需点"确认回填"才同步）
-          setProjectData(data.projectData);
-          setTeamData(data.teamData);
-          setMessages(prev => [...prev, {
-            id: Date.now(),
-            role: 'ai',
-            type: 'preview_team',
-            text: '📍 【项目基本信息与团队职责确认】\n请确认以下信息，修改后点一键回填同步至主页面表单。'
-          }]);
-          setIsTyping(false);
-        },
-        onText: (data) => {
-          setIsTyping(false);
-          if (streamingMsgIdRef.current) {
-            setMessages(prev => prev.map(m =>
-              m.id === streamingMsgIdRef.current ? { ...m, text: m.text + data.content } : m
-            ));
-          } else {
-            const newId = Date.now();
-            streamingMsgIdRef.current = newId;
-            setMessages(prev => [...prev, { id: newId, role: 'ai', text: data.content }]);
-          }
-        },
-        onUpdateProject: (data) => {
-          setDraftProjectData(data.projectData);
-          setIsTyping(false);
-          streamingMsgIdRef.current = null;
-        },
-        onUpdateTeam: (data) => {
-          setDraftTeamData(data.teamData);
-          setIsTyping(false);
-          streamingMsgIdRef.current = null;
-        },
-        onFillbackComplete: (data) => {
-          setMessages(prev => [...prev, {
-            id: Date.now(),
-            role: 'ai',
-            text: data.message || '🎉 回填成功！项目基本信息与团队数据已同步至左侧表单。'
-          }]);
-          setIsTyping(false);
-          streamingMsgIdRef.current = null;
-        },
-        onError: (data) => {
-          setMessages(prev => [...prev, { id: Date.now(), role: 'ai', text: `❌ 错误：${data.message}` }]);
-          setIsTyping(false);
-          streamingMsgIdRef.current = null;
-        },
-      }
-    );
+    // 模式3：首次加载预览数据（Agent.initialize() 自动推送 preview + greeting）
+    const loadPreview = async () => {
+      setIsTyping(true);
+      await streamClient.chat(
+        { projectId: projectData.id, userName: currentUser, isPM: isCurrentUserPM, message: '__INIT__' },
+        {
+          onConnected: (data) => { setSseConnected(true); },
+          onPreview: (data) => {
+            setDraftProjectData(data.projectData);
+            setDraftTeamData(data.teamData);
+            setProjectData(data.projectData);
+            setTeamData(data.teamData);
+            setMessages(prev => [...prev, {
+              id: Date.now(),
+              role: 'ai',
+              type: 'preview_team',
+              text: '📍 【项目基本信息与团队职责确认】\n请确认以下信息，修改后点一键回填同步至主页面表单。'
+            }]);
+          },
+          onText: (data) => {
+            if (streamingMsgIdRef.current) {
+              setMessages(prev => prev.map(m =>
+                m.id === streamingMsgIdRef.current ? { ...m, text: m.text + data.content } : m
+              ));
+            } else {
+              const newId = Date.now();
+              streamingMsgIdRef.current = newId;
+              setMessages(prev => [...prev, { id: newId, role: 'ai', text: data.content }]);
+            }
+          },
+          onError: (data) => { setMessages(prev => [...prev, { id: Date.now(), role: 'ai', text: `❌ 错误：${data.message}` }]); },
+        }
+      );
+      setIsTyping(false);
+      streamingMsgIdRef.current = null;
+    };
 
-    return () => sseClient.disconnect();
+    loadPreview();
+
+    return () => { streamClient.cancel(); };
   }, [currentUser, isCurrentUserPM, projectData.id]);
 
   const handleSend = async () => {
@@ -199,17 +179,36 @@ const AIChatbot = ({
        return;
     }
 
-    if (!sseClient.isConnected()) {
-      setMessages(prev => [...prev, { id: Date.now()+1, role: 'ai', text: '❌ 未连接到AI服务，请刷新页面重试。' }]);
-      setIsTyping(false);
-      return;
-    }
-
-    const result = await sseClient.sendMessage(userText);
-    if (result.error) {
-      setMessages(prev => [...prev, { id: Date.now()+1, role: 'ai', text: `❌ 发送失败：${result.error}` }]);
-      setIsTyping(false);
-    }
+    // 模式3：一次 fetch 搞定，AI 回复通过 handlers 流式回调
+    await streamClient.chat(
+      { projectId: projectData.id, userName: currentUser, isPM: isCurrentUserPM, message: userText },
+      {
+        onText: (data) => {
+          if (streamingMsgIdRef.current) {
+            setMessages(prev => prev.map(m =>
+              m.id === streamingMsgIdRef.current ? { ...m, text: m.text + data.content } : m
+            ));
+          } else {
+            const newId = Date.now();
+            streamingMsgIdRef.current = newId;
+            setMessages(prev => [...prev, { id: newId, role: 'ai', text: data.content }]);
+          }
+        },
+        onUpdateProject: (data) => {
+          setDraftProjectData(data.projectData);
+          streamingMsgIdRef.current = null;
+        },
+        onUpdateTeam: (data) => {
+          setDraftTeamData(data.teamData);
+          streamingMsgIdRef.current = null;
+        },
+        onError: (data) => {
+          setMessages(prev => [...prev, { id: Date.now(), role: 'ai', text: `❌ 错误：${data.message}` }]);
+        },
+      }
+    );
+    setIsTyping(false);
+    streamingMsgIdRef.current = null;
   };
 
   if (!isOpen) {
@@ -353,9 +352,13 @@ const AIChatbot = ({
                     if(!isCurrentUserPM)return;
                     setTeamData(draftTeamData);
                     setProjectData(draftProjectData);
-                    // 将预览面板最新数据传给后端执行持久化
-                    if (sseClient.isConnected()) {
-                      await sseClient.sendFillback(draftProjectData, draftTeamData);
+                    // 模式3：独立 POST 执行持久化（无需 session）
+                    const result = await streamClient.fillback(
+                      projectData.id, currentUser, isCurrentUserPM,
+                      draftProjectData, draftTeamData
+                    );
+                    if (result && result.status === 'error') {
+                      setMessages(prev => [...prev, { id: Date.now(), role: 'ai', text: `❌ 回填失败：${result.message}` }]);
                     }
                   }}
                   disabled={!isCurrentUserPM}

@@ -8,7 +8,8 @@ import uuid
 import os
 
 from fastapi import FastAPI, Query, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -32,6 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🆕 挂载静态文件目录（Swagger UI 本地文件，解决内网无 CDN 问题）
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Agent池: session_id -> ProjectAssistantAgent
 agent_pool: dict[str, ProjectAssistantAgent] = {}
 
@@ -43,6 +47,23 @@ class ChatMessageRequest(BaseModel):
     """发送消息请求体"""
     sessionId: str
     message: str
+
+
+class ChatRequest(BaseModel):
+    """模式3 单次请求体（无需 session，每次请求独立创建 Agent）"""
+    projectId: str
+    userName: str
+    isPM: bool = False
+    message: str
+
+
+class FillbackV3Request(BaseModel):
+    """模式3 回填请求体（无 session，独立创建 Agent 完成持久化）"""
+    projectId: str
+    userName: str
+    isPM: bool = False
+    draftProjectData: dict = None
+    draftTeamData: list = None
 
 
 @app.get("/api/chat/stream")
@@ -127,6 +148,10 @@ async def chat_message(request: ChatMessageRequest, background_tasks: Background
     if not agent:
         return {"error": "会话不存在或已过期，请刷新页面重新连接", "code": "SESSION_NOT_FOUND"}
 
+    # 并发前置拦截：Agent 正在处理上一条指令时拒绝新请求
+    if agent.is_busy:
+        return {"error": "AI助手正在思考或执行操作中，请稍后再试", "code": "AGENT_BUSY"}
+
     print(f"[API] Received message: session={session_id}, message={message[:50]}...")
 
     # 使用FastAPI BackgroundTasks异步处理消息（不阻塞API响应）
@@ -154,6 +179,10 @@ async def chat_fillback(request: Request):
     if not agent:
         return {"status": "error", "message": "会话不存在", "code": "SESSION_NOT_FOUND"}
 
+    # 并发前置拦截
+    if agent.is_busy:
+        return {"status": "error", "message": "AI助手正在处理中，请稍后再试", "code": "AGENT_BUSY"}
+
     # 兼容新旧格式：前端发送 draftProjectData/draftTeamData 时使用前端数据
     # 否则回退到后端缓存的 self.draft_project/self.draft_team
     draft_project = body.get("draftProjectData")
@@ -166,6 +195,112 @@ async def chat_fillback(request: Request):
         import traceback
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
+
+
+# ============================================================
+# 🆕 模式3：POST /api/chat（单次请求流式返回，无 session）
+# 每次请求独立创建 → 处理 → 销毁 Agent，不依赖 agent_pool
+# ============================================================
+@app.post("/api/chat")
+async def chat_v3(request: ChatRequest):
+    """
+    模式3 流式聊天接口
+    前端通过 fetch + ReadableStream 调用：
+    - AI 对话回复 → 流式 text 事件（逐段推送）
+    - 表格/数据查询 → 一次性 update_project / update_team 事件（整包推送）
+    """
+    queue = asyncio.Queue()
+    agent = ProjectAssistantAgent(
+        request.projectId, request.userName, request.isPM, queue
+    )
+
+    async def event_generator():
+        try:
+            await agent.initialize()
+            yield format_sse("connected", {"status": "ok"})
+
+            # __INIT__ 仅加载预览数据，不走消息处理（避免重复问候）
+            if request.message == "__INIT__":
+                # drain queue：清空 initialize 过程中积压的事件
+                while not queue.empty():
+                    msg = queue.get_nowait()
+                    if msg.get("event") != "close":
+                        yield format_sse(msg["event"], msg["data"])
+                return
+
+            # 后台启动消息处理，结果通过 queue 返回
+            task = asyncio.create_task(agent.handle_message(request.message))
+
+            while True:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=60.0)
+                except asyncio.TimeoutError:
+                    yield format_sse("error", {"message": "操作超时，请重试"})
+                    break
+
+                if msg.get("event") == "close":
+                    break
+
+                yield format_sse(msg["event"], msg["data"])
+
+                # Agent 处理完毕 → 清空队列残余事件后结束
+                if task.done():
+                    while not queue.empty():
+                        msg = queue.get_nowait()
+                        if msg.get("event") != "close":
+                            yield format_sse(msg["event"], msg["data"])
+                    break
+        finally:
+            await agent.close()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+# ============================================================
+# 🆕 模式3：POST /api/chat/fillback-v3（无 session 回填）
+# 前端点"一键回填"时独立调用，不依赖 SSE 长连接
+# ============================================================
+@app.post("/api/chat/fillback-v3")
+async def chat_fillback_v3(request: FillbackV3Request):
+    """
+    模式3 一键回填（无 session）
+    独立创建 Agent → 执行持久化 → 销毁，不留在 agent_pool 中
+    """
+    if not request.isPM:
+        return {"status": "error", "message": "权限拒绝：只有项目经理可以执行回填"}
+
+    queue = asyncio.Queue()
+    agent = ProjectAssistantAgent(
+        request.projectId, request.userName, request.isPM, queue
+    )
+
+    try:
+        await agent.initialize()
+        await agent.handle_fillback_with_data(
+            request.draftProjectData, request.draftTeamData
+        )
+        return {"status": "ok"}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+    finally:
+        await agent.close()
+
+
+# ============================================================
+# 🆕 Swagger UI（重定向到本地静态文件，内网可用）
+# ============================================================
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_ui():
+    return RedirectResponse(url="/static/swagger-ui.html")
 
 
 @app.get("/health")

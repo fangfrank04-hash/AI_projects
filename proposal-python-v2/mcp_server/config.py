@@ -22,5 +22,8 @@ MCP_PATH = os.getenv("MCP_PATH", "/mcp")
 # HTTP 请求超时（秒）
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "5.0"))
 
+# Java 认证 Cookie（内网 SSO 登录后手动获取粘贴）
+JAVA_COOKIE = os.getenv("JAVA_COOKIE", "")
+
 # 日志级别
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

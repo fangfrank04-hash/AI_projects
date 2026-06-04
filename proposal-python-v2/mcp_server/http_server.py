@@ -9,6 +9,7 @@ prod模式(DEV_MODE=false, 默认): 调用 Java HTTP API → H2 database
 import os
 import sys
 import json
+import httpx
 
 # 确保项目根目录在 sys.path 中
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -51,7 +52,7 @@ def _wrap_read_response(java_result: dict) -> str:
 
 def _normalize_project(project: dict) -> dict:
     """标准化 Java 项目数据格式（null → ""）"""
-    for key in ("productNo", "productName", "changeReq", "proposalBackground", "proposalScope"):
+    for key in ("productCode", "productName", "changeReq", "proposalBackground", "proposalScope"):
         if project.get(key) is None:
             project[key] = ""
     return project
@@ -63,6 +64,8 @@ def _normalize_team_member(member: dict) -> dict:
     Java 返回: {id, role, name, userId, nickname, roleIds, responsibilities: [{name, checked}, ...]}
     前端期望: {id, role, name, userId, roleIds, responsibilities: [{name, checked}, ...]}
     """
+    if not isinstance(member, dict):
+        return {"id": str(member), "userId": "", "name": str(member), "role": "", "roleIds": [], "responsibilities": []}
     resp = member.get("responsibilities", [])
     # 确保 responsibilities 是 [{name, checked}] 格式
     if resp and isinstance(resp, list):
@@ -124,36 +127,88 @@ async def get_project_info(project_id: str) -> str:
 # Tool 2: 更新项目基本信息
 # ============================================================
 @mcp.tool()
-async def update_project_info(project_id: str, productNo: str = "", productName: str = "") -> str:
+async def update_project_info(project_id: str, productCode: str = "", productName: str = "") -> str:
     """
-    更新项目基本信息。当前仅允许编辑 productNo（产品编号）和 productName（产品名称）。
+    更新项目基本信息。当前仅允许编辑 productCode（产品编号）和 productName（产品名称）。
     参数:
-      project_id - 项目编号
-      productNo  - 新的产品编号（可选）
+      project_id  - 项目编号
+      productCode - 新的产品编号（可选）
       productName - 新的产品名称（可选）
     """
     if DEV_MODE:
         # 始终传递两个字段（包括空值），允许用户清空产品编号/名称
-        data = {"id": project_id, "productNo": productNo, "productName": productName}
+        data = {"id": project_id, "productCode": productCode, "productName": productName}
         result = update_project(data)
         return json.dumps(result, ensure_ascii=False)
 
     try:
         client = _get_java_client()
-        java_params = {"id": project_id, "productNo": productNo, "productName": productName}
+
+        # 先查询当前项目完整数据
+        current = await client.safe_call(
+            "/itmp/pmProjectService/findProjectById",
+            {"id": project_id}
+        )
+
+        # 提取项目数据（Java 返回 {"status":..., "content":{"head":..., "data":{...}}}）
+        print(f"[MCP] raw query: keys={list(current.keys())}, sample={json.dumps(current, ensure_ascii=False)[:200]}")
+
+        project = current
+        # 直接从 content.data 提取
+        if "content" in project and isinstance(project.get("content"), dict):
+            content_data = project["content"].get("data")
+            if isinstance(content_data, dict):
+                project = content_data
+        elif "data" in project and isinstance(project.get("data"), dict):
+            project = project["data"]
+        # 如果还是字符串，再解析一次
+        if isinstance(project, str):
+            try:
+                project = json.loads(project)
+            except:
+                pass
+
+        print(f"[MCP] query result: keys={list(project.keys())[:10]}, productCode={project.get('productCode', 'N/A')}, name={project.get('name', 'N/A')}")
+
+        # 深度清洗：把所有 None/null 替换为空值（Java 不能接受 null）
+        def _clean(obj):
+            if isinstance(obj, dict):
+                return {k: _clean(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [_clean(v) for v in obj]
+            elif obj is None:
+                return ""
+            return obj
+
+        print(f"[MCP] project extracted: productCode={repr(project.get('productCode'))}, deptName={repr(project.get('deptName'))}")
+        project = _clean(project)
+
+        # 合并更新字段（只改这两个）
+        project["productCode"] = productCode
+        project["productName"] = productName
+
+        print(f"[MCP] update: productCode={productCode}, productName={productName}")
+        print(f"[MCP] update: sending pmProject with {len(project)} fields")
+        # 打印完整发送数据（用于对比调试）
+        pm_json = json.dumps({"pmProject": project}, ensure_ascii=False)
+        print(f"[MCP] FULL DATA: {pm_json}")
 
         java_result = await client.safe_call(
             "/itmp/pmProjectService/updatePmProject",
-            java_params
+            {"pmProject": project}
         )
+        print(f"[MCP] update: Java response = {json.dumps(java_result, ensure_ascii=False)[:200]}")
 
-        # 写操作成功后，重新获取最新数据并附加到结果
+        # 写操作成功后，重新获取最新数据
         if java_result.get("success"):
             updated = await client.safe_call(
                 "/itmp/pmProjectService/findProjectById",
                 {"id": project_id}
             )
-            java_result["data"] = _normalize_project(updated)
+            project_data = updated.get("data", updated)
+            if isinstance(project_data, dict) and "success" in project_data:
+                project_data = project_data.get("data", updated)
+            java_result["data"] = _normalize_project(project_data)
 
         return json.dumps(java_result, ensure_ascii=False)
     except JavaClientError as e:
@@ -341,7 +396,11 @@ async def batch_sync_team_data(project_id: str, team_layout: str) -> str:
                             break
 
                     if member_role:
-                        duty_names = [d.get("name", d) if isinstance(d, dict) else d for d in duties if d.get("checked", True) if isinstance(d, dict) else True]
+                        duty_names = [
+                            d.get("name", d) if isinstance(d, dict) else d
+                            for d in duties
+                            if isinstance(d, dict) and d.get("checked", True)
+                        ]
                         if duty_names:
                             await client.safe_call(
                                 "/portal/abikoleManagerService/updateDuty",
@@ -391,27 +450,66 @@ async def update_member_duty(project_id: str, name: str, duty_name: str, checked
     try:
         client = _get_java_client()
 
-        # 先查找成员的 role，用于 Java API 的 rid 参数
-        team_result = await client.safe_call(
-            "/itmp/pmProjectMemberService/findPmProjectMemberList",
-            {"pmProjectId": project_id, "page": 0, "size": 100}
+        # 1. 调 findUserById 获取成员列表（含 rid 和 endList）
+        user_result = await client.safe_call(
+            "/itmp/pmProjectmanagement/findUserById",
+            {"pmProjectId": project_id, "pageable": {"page": 0, "size": 100}}
         )
-        members = team_result.get("content", [])
-        member_role = None
+
+        # 提取 content.data.content
+        print(f"[MCP] findUserById raw keys: {list(user_result.keys())}")
+        members = []
+        if "content" in user_result and isinstance(user_result.get("content"), dict):
+            data = user_result["content"].get("data", {})
+            print(f"[MCP] content.data keys: {list(data.keys())}, content_count={len(data.get('content', []))}")
+            members = data.get("content", [])
+        elif "data" in user_result:
+            members = user_result.get("data", {}).get("content", [])
+        print(f"[MCP] extracted members count: {len(members)}")
+
+        # 2. 遍历所有成员，组装完整的 roleList（接口要求传所有角色）
+        role_list = []
+        duty_id = None    # 目标职责的UUID
+        found_target = False
+
         for m in members:
-            if m.get("userId") == name or m.get("name") == name or m.get("nickname") == name:
-                member_role = m.get("role", "")
-                break
+            rid = m.get("rid")
+            ids = [d.get("id") for d in m.get("endList", []) if d.get("id")]
+            if rid is None:
+                continue
 
-        if not member_role:
+            # 判断是否是要修改的目标成员
+            if m.get("users") == name or m.get("role") == name or m.get("name") == name:
+                found_target = True
+                # 在 list 中查找 duty_name 对应的 id
+                for d in m.get("list", []):
+                    if d.get("dictionary_value") == duty_name:
+                        duty_id = d.get("id")
+                        break
+                # 根据 checked 决定增删
+                if checked:
+                    if duty_id and duty_id not in ids:
+                        ids.append(duty_id)
+                else:
+                    ids = [i for i in ids if i != duty_id]
+
+            role_list.append({"rid": rid, "ids": ids})
+
+        if not found_target:
             return json.dumps({"success": False, "message": f"未找到成员: {name}"}, ensure_ascii=False)
+        if not duty_id:
+            return json.dumps({"success": False, "message": f"未找到职责: {duty_name}"}, ensure_ascii=False)
 
+        # 3. 调 updateDuty（传所有角色）
+        print(f"[MCP] updateDuty: role_count={len(role_list)}, pid={project_id}")
         java_result = await client.safe_call(
             "/portal/abikoleManagerService/updateDuty",
-            {"rid": member_role, "ids": [duty_name], "pid": project_id, "checked": checked}
+            {"roleList": role_list, "pid": project_id}
         )
+        print(f"[MCP] updateDuty response: {json.dumps(java_result, ensure_ascii=False)[:200]}")
 
         if java_result.get("success"):
+            # 重新获取最新数据
             updated = await client.safe_call(
                 "/itmp/pmProjectMemberService/findPmProjectMemberList",
                 {"pmProjectId": project_id, "page": 0, "size": 100}
@@ -427,34 +525,38 @@ async def update_member_duty(project_id: str, name: str, duty_name: str, checked
         import traceback
         print(f"[MCP] 未预期的错误: {e}")
         traceback.print_exc()
-        return json.dumps({"success": False, "message": f"服务器内部错误: {str(e)}"}, ensure_ascii=False)
-    except Exception as e:
-        import traceback
-        print(f"[MCP] update_member_duty 未预期的错误: {e}")
-        traceback.print_exc()
-        return json.dumps({"success": False, "message": f"服务器内部错误: {str(e)}"}, ensure_ascii=False)
+        return json.dumps({"success": False, "message": f"服务器内部错误: {str(e)}"}, ensure_ascii=False)    
 
 
 # ============================================================
 # Tool 8: 查询用户信息
 # ============================================================
 @mcp.tool()
-async def get_user_info(user_id: str) -> str:
+async def get_user_info(project_id: str) -> str:
     """
-    根据用户ID查询用户基本信息。
-    参数: user_id - 用户ID
+    根据项目ID分页查询项目成员职责信息（含角色和勾选的职责列表）。
+    参数: project_id - 项目编号，例如 4712577cd156421e8215a38d63baf98d
     """
     if DEV_MODE:
-        result = get_user_by_id(user_id)
+        result = get_user_by_id(project_id)
         return json.dumps(result, ensure_ascii=False)
 
     try:
         client = _get_java_client()
         java_result = await client.safe_call(
             "/itmp/pmProjectmanagement/findUserById",
-            {"id": user_id}
+            {"pmProjectId": project_id, "pageable": {"page": 0, "size": 100}}
         )
-        return _wrap_read_response(java_result)
+        # 提取 content.data.content（实际成员列表，不要深层包装）
+        print(f"[MCP] get_user_info raw data keys: {list(java_result.keys())}")
+        if "content" in java_result and isinstance(java_result.get("content"), dict):
+            print(f"[MCP] content.data keys: {list(java_result['content'].get('data', {}).keys())}")
+        members = []
+        if "content" in java_result and isinstance(java_result.get("content"), dict):
+            data = java_result["content"].get("data", {})
+            members = data.get("content", [])
+        print(f"[MCP] get_user_info extracted {len(members)} members")
+        return json.dumps({"success": True, "data": members}, ensure_ascii=False)
     except JavaClientError as e:
         return json.dumps({"success": False, "message": e.message, "detail": e.detail}, ensure_ascii=False)
     except Exception as e:

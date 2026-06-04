@@ -6,7 +6,7 @@
 
 ### 可编辑字段（白名单）
 
-#### 1. productNo（产品编号）
+#### 1. productCode（产品编号）
 
 **字段类型**：string
 
@@ -36,7 +36,7 @@
 # 修改产品编号
 result = await update_project_info(
     project_id="P001",
-    productNo="ABC-2026-001"
+    productCode="ABC-2026-001"
 )
 ```
 
@@ -265,7 +265,7 @@ result = await update_member_duty(
    - `role`（成员角色）不能为空
 
 2. **格式验证**：
-   - `productNo` 建议遵循命名规范（但不强制）
+   - `productCode` 建议遵循命名规范（但不强制）
    - `productName` 不能为空字符串
 
 3. **权限验证**：
@@ -319,7 +319,7 @@ result = await update_member_duty(
 
 **AI处理逻辑**：
 1. 解析意图：类型A — 修改项目基本信息
-2. 提取参数：缺少 `productNo` 的新值
+2. 提取参数：缺少 `productCode` 的新值
 3. 追问确认：
 ```
 请确认：您要将【产品编号】修改为什么值？
