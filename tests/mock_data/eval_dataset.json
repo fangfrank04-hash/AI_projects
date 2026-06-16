@@ -1,0 +1,68 @@
+{
+  "name": "RAG 评测示例数据集",
+  "description": "包含 10 条覆盖不同难度和场景的 RAG 评测用例，用于验证 Faithfulness / Context Precision / Context Recall / Answer Relevancy 四个指标",
+  "version": "1.0",
+  "created_by": "eval-system",
+  "cases": [
+    {
+      "question": "什么是 RAG 技术？",
+      "reference_answer": "RAG（Retrieval-Augmented Generation）是一种将信息检索与文本生成相结合的技术，它先从外部知识库检索相关文档，再基于检索结果生成答案，从而减少大语言模型的幻觉问题。",
+      "ground_truth_chunks": ["chunk_001", "chunk_002"],
+      "metadata": {"category": "基础概念", "difficulty": "easy", "tags": ["rag", "intro"]}
+    },
+    {
+      "question": "RAG 与传统问答系统的主要区别是什么？",
+      "reference_answer": "传统问答系统依赖预定义的规则或知识图谱，而 RAG 通过动态检索外部文档来获取实时信息，不依赖固定的知识库，能够处理开放域问题。",
+      "ground_truth_chunks": ["chunk_003", "chunk_004"],
+      "metadata": {"category": "对比分析", "difficulty": "medium", "tags": ["rag", "comparison"]}
+    },
+    {
+      "question": "LangChain 在 RAG 系统中扮演什么角色？",
+      "reference_answer": "LangChain 是一个用于构建 LLM 应用的框架，在 RAG 系统中它提供了文档加载器、文本分割器、向量存储和链式调用等组件，简化了 RAG pipeline 的构建过程。",
+      "ground_truth_chunks": ["chunk_005"],
+      "metadata": {"category": "工具框架", "difficulty": "easy", "tags": ["langchain", "framework"]}
+    },
+    {
+      "question": "在 RAG 系统中，如何评估检索质量？",
+      "reference_answer": "检索质量可以通过 Context Precision（上下文精确度）和 Context Recall（上下文召回率）两个指标来评估。Context Precision 衡量检索到的文档中有多少是真正相关的，Context Recall 衡量回答问题所需的信息是否都被检索到了。",
+      "ground_truth_chunks": ["chunk_006", "chunk_007", "chunk_008"],
+      "metadata": {"category": "评测方法", "difficulty": "medium", "tags": ["evaluation", "metrics"]}
+    },
+    {
+      "question": "什么是向量数据库？它在 RAG 中的作用是什么？",
+      "reference_answer": "向量数据库是一种专门存储和检索高维向量数据的数据库。在 RAG 中，向量数据库用于存储文档的嵌入向量，支持基于语义相似度的快速检索，是实现高效文档检索的核心组件。",
+      "ground_truth_chunks": ["chunk_009", "chunk_010"],
+      "metadata": {"category": "技术组件", "difficulty": "easy", "tags": ["vector-db", "infrastructure"]}
+    },
+    {
+      "question": "为什么 RAG 系统比纯 LLM 更不容易产生幻觉？",
+      "reference_answer": "纯 LLM 的回答完全依赖其训练数据中的记忆，当遇到未知信息时可能编造内容。RAG 系统通过检索外部真实文档作为上下文，让 LLM 基于可验证的文档内容生成答案，因此显著降低了产生幻觉的风险。",
+      "ground_truth_chunks": ["chunk_011", "chunk_012"],
+      "metadata": {"category": "原理分析", "difficulty": "medium", "tags": ["hallucination", "principle"]}
+    },
+    {
+      "question": "Embedding 模型的选择对 RAG 系统性能有多大影响？",
+      "reference_answer": "Embedding 模型的选择对 RAG 系统性能有显著影响。高质量的 Embedding 模型能更准确地将语义相似的文本映射到向量空间中相近的位置，直接提升检索的准确率和召回率。模型需要根据具体领域和语言选择合适的预训练模型，必要时进行微调。",
+      "ground_truth_chunks": ["chunk_013", "chunk_014", "chunk_015"],
+      "metadata": {"category": "模型选择", "difficulty": "hard", "tags": ["embedding", "model-selection"]}
+    },
+    {
+      "question": "如何解决 RAG 系统中的上下文窗口限制问题？",
+      "reference_answer": "可以通过以下方式解决：1）优化 chunk 大小，平衡信息完整度和检索精度；2）使用 Rerank 模型对检索结果进行二次排序，只保留最相关的文档；3）采用摘要或压缩技术，在送入 LLM 前精简上下文内容。",
+      "ground_truth_chunks": ["chunk_016", "chunk_017"],
+      "metadata": {"category": "工程实践", "difficulty": "hard", "tags": ["context-window", "optimization"]}
+    },
+    {
+      "question": "什么是 Faithfulness 指标？如何计算？",
+      "reference_answer": "Faithfulness（忠实度）衡量生成答案是否忠实于检索到的上下文文档，用于检测幻觉。计算方法为两阶段 LLM 评估：首先从答案中提取原子声明，然后逐条判断每条声明是否能从上下文中找到支撑，最终分数 = 被支撑的声明数 / 总声明数。",
+      "ground_truth_chunks": ["chunk_018"],
+      "metadata": {"category": "评测指标", "difficulty": "medium", "tags": ["faithfulness", "metric"]}
+    },
+    {
+      "question": "RAG 系统的延迟（Latency）主要由哪些部分组成？",
+      "reference_answer": "RAG 系统的延迟主要由三部分组成：1）Embedding 生成延迟（将查询转为向量）；2）向量检索延迟（在数据库中搜索相似向量）；3）LLM 推理延迟（基于上下文生成答案）。其中 LLM 推理通常是最耗时的环节。",
+      "ground_truth_chunks": ["chunk_019", "chunk_020"],
+      "metadata": {"category": "性能优化", "difficulty": "medium", "tags": ["latency", "performance"]}
+    }
+  ]
+}

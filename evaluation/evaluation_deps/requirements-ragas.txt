@@ -1,0 +1,14 @@
+# RAG 评测系统 - 方案A 专属依赖（RAGAS）
+# 
+# 安装方式（外网）:
+#   pip install -r requirements-ragas.txt
+#
+# 内网迁移（外网下载后打包）:
+#   pip download -r requirements-ragas.txt -d ./ragas-offline-packages/
+#   然后将 ragas-offline-packages/ 目录传到内网，执行:
+#   pip install --no-index --find-links=./ragas-offline-packages/ -r requirements-ragas.txt
+
+ragas>=0.2.0,<0.3.0
+datasets>=2.14.0
+langchain>=0.2.0
+langchain-openai>=0.1.0
