@@ -1,0 +1,14 @@
+[project]
+name = "aiproctor0623"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.138.0",
+    "logic>=0.2.3",
+    "mediapipe==0.10.20",
+    "opencv-python==4.8.1.78",
+    "python-multipart>=0.0.32",
+    "ultralytics==8.4.75",
+    "uvicorn>=0.49.0",
+]
