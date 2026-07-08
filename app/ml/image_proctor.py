@@ -161,6 +161,17 @@ class ImageProctor:
                                                  landmark_drawing_spec=None,
                                                  connection_drawing_spec=stRrawStyle.get_default_face_mesh_iris_connections_style())
 
+        # FaceMesh 对半入镜/侧脸的第二个人不够敏感，使用 FaceDetection 做多人兜底。
+        if iCount <= 1:
+            stFaceDetectionSolution = mp.solutions.face_detection
+            with stFaceDetectionSolution.FaceDetection(
+                model_selection=1,
+                min_detection_confidence=0.5,
+            ) as stFaceDetection:
+                stDetectionResult = stFaceDetection.process(stImageRGB)
+                if stDetectionResult.detections and len(stDetectionResult.detections) > 1:
+                    iCount = len(stDetectionResult.detections)
+
         # ===== 多人检测优先（iCount > 1 时直接报多人，跳过 Pose）=====
         if iCount > 1:
             self.m_iWarningCount += 1

@@ -10,12 +10,12 @@ import re
 
 from PIL import Image
 
-# 确保 aiProctor 父目录在 sys.path 中，使 AiProctor 包可导入
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT_DIR)
 
-from AiProctor.Logic.ImageProctor import ImageProctor
+from app.ml.image_proctor import ImageProctor
 
-TEST_DIR = os.path.join(os.path.dirname(__file__), "AiProctor", "test_images", "ai_generated")
+TEST_DIR = os.path.join(ROOT_DIR, "assets", "test_images", "ai_generated")
 
 # 方向名称
 DIR_NAMES = {0: "正面", 1: "右看", 2: "下看", 3: "左看", 4: "上看"}
@@ -129,11 +129,11 @@ def main():
             dir_name = DIR_NAMES.get(direction, "?")
             print("{:<28s} {:>8.2f} {:>8.2f} {:>5d} {:>6s} {:>10s} {:>32s} {:>6s}".format(
                 fname, x_ang, y_ang, direction, dir_name, category, result_text,
-                "✅" if matched else "❌"))
+                "PASS" if matched else "FAIL"))
         else:
             print("{:<28s} {:>8s} {:>8s} {:>5s} {:>6s} {:>10s} {:>32s} {:>6s}".format(
                 fname, "-", "-", "-", "-", category, result_text,
-                "✅" if matched else "❌"))
+                "PASS" if matched else "FAIL"))
 
         results.append((fname, category, x_ang, y_ang, direction, result_text, matched))
 
@@ -174,7 +174,7 @@ def main():
         key = "_".join(base[:2])  # e.g. "B_01"
         if key in boundary_keys:
             boundary_results.append(r)
-            mark = "✅ 通过" if r[6] else "❌ 误判"
+            mark = "PASS 通过" if r[6] else "FAIL 误判"
             extra = ""
             if not r[6] and r[3] is not None:
                 extra = f" (检测为: {DIR_NAMES.get(r[3], '?')})"
@@ -192,7 +192,7 @@ def main():
     errors = [r for r in results if not r[6] and r[1] not in ("挑战",)]
     if errors:
         for r in errors:
-            print(f"  ❌ {r[0]}  预期={r[1]}  实际={r[5]}  方向={r[3]}({DIR_NAMES.get(r[3], '?')})")
+            print(f"  FAIL {r[0]}  预期={r[1]}  实际={r[5]}  方向={r[3]}({DIR_NAMES.get(r[3], '?')})")
     else:
         print("  无漏检/误检！")
 

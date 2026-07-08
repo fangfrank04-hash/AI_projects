@@ -1,0 +1,181 @@
+﻿category_dir,filename,expected_category,expected_desc,expected_keyword,actual,passed,elapsed_ms
+gaze_away,face_hidden_in_frame_01_174435.jpg,视线偏移,视线偏移,视线偏移,警告，考生疑似打电话,False,423.81
+gaze_away,face_hidden_in_frame_02_174439.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,441.25
+gaze_away,face_hidden_in_frame_03_174439.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,539.1
+gaze_away,face_hidden_in_frame_04_174439.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,526.32
+gaze_away,face_hidden_in_frame_05_174441.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,606.42
+gaze_away,face_hidden_in_frame_06_174441.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,538.74
+gaze_away,face_hidden_in_frame_07_174441.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,571.53
+gaze_away,face_hidden_in_frame_08_174442.jpg,视线偏移,视线偏移,视线偏移,正常考试中 ...,False,927.71
+gaze_away,face_hidden_in_frame_09_174442.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,607.6
+gaze_away,face_hidden_in_frame_10_174443.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,553.54
+gaze_away,face_hidden_in_frame_11_174443.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,606.21
+gaze_away,face_hidden_in_frame_12_174444.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,540.9
+gaze_away,face_hidden_in_frame_13_174444.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,589.23
+gaze_away,face_hidden_in_frame_14_174445.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,573.28
+gaze_away,face_hidden_in_frame_15_174445.jpg,视线偏移,视线偏移,视线偏移,警告，考生视线偏移,True,578.68
+gaze_away,head_turn_large_01_174448.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,615.89
+gaze_away,head_turn_large_02_174448.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,517.7
+gaze_away,head_turn_large_03_174448.jpg,视线偏移,视线偏移/转头,转头,正常考试中 ...,False,568.93
+gaze_away,head_turn_large_04_174448.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,641.74
+gaze_away,head_turn_large_05_174450.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,629.27
+gaze_away,head_turn_large_06_174450.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,561.23
+gaze_away,head_turn_large_07_174450.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,523.51
+gaze_away,head_turn_large_08_174451.jpg,视线偏移,视线偏移/转头,转头,正常考试中 ...,False,620.53
+gaze_away,head_turn_large_09_174451.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,574.91
+gaze_away,head_turn_large_10_174452.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,664.8
+gaze_away,head_turn_large_11_174453.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,534.37
+gaze_away,head_turn_large_12_174453.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,578.62
+gaze_away,head_turn_large_13_174454.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,522.99
+gaze_away,head_turn_large_14_174455.jpg,视线偏移,视线偏移/转头,转头,正常考试中 ...,False,609.59
+gaze_away,head_turn_large_15_174455.jpg,视线偏移,视线偏移/转头,转头,警告，考生视线偏移,False,635.66
+leave_seat,person_gone_01_174455.jpg,离开座位,离开座位（人消失）,离开座位,警告，考生视线偏移,False,524.32
+leave_seat,person_gone_02_174501.jpg,离开座位,离开座位（人消失）,离开座位,警告，考生离开座位,True,527.76
+leave_seat,person_gone_03_174501.jpg,离开座位,离开座位（人消失）,离开座位,警告，考生离开座位,True,499.69
+leave_seat,person_gone_04_174502.jpg,离开座位,离开座位（人消失）,离开座位,警告，考生离开座位,True,545.31
+leave_seat,person_gone_05_174502.jpg,离开座位,离开座位（人消失）,离开座位,警告，考生离开座位,True,626.84
+leave_seat,person_gone_06_174502.jpg,离开座位,离开座位（人消失）,离开座位,警告，考生离开座位,True,571.35
+leave_seat,person_gone_07_174509.jpg,离开座位,离开座位（人消失）,离开座位,警告，考生离开座位,True,504.81
+leave_seat,person_gone_08_174509.jpg,离开座位,离开座位（人消失）,离开座位,警告，考生离开座位,True,510.48
+leave_seat,stand_up_01_174537.jpg,离开座位,离开座位（站立→人消失）,离开座位,警告，考生视线偏移,False,541.42
+leave_seat,stand_up_02_174540.jpg,离开座位,离开座位（站立→人消失）,离开座位,警告，考生离开座位,True,399.03
+leave_seat,stand_up_03_174542.jpg,离开座位,离开座位（站立→人消失）,离开座位,警告，考生离开座位,True,457.07
+leave_seat,stand_up_04_174542.jpg,离开座位,离开座位（站立→人消失）,离开座位,警告，考生离开座位,True,494.63
+leave_seat,stand_up_05_174543.jpg,离开座位,离开座位（站立→人消失）,离开座位,警告，考生离开座位,True,523.46
+leave_seat,stand_up_06_174543.jpg,离开座位,离开座位（站立→人消失）,离开座位,警告，考生离开座位,True,483.93
+leave_seat,stand_up_07_174543.jpg,离开座位,离开座位（站立→人消失）,离开座位,警告，考生离开座位,True,476.84
+leave_seat,turn_body_left_90_01_174519.jpg,离开座位,离开座位（转身90）,转身,警告，考生转身,True,518.72
+leave_seat,turn_body_left_90_02_174519.jpg,离开座位,离开座位（转身90）,转身,警告，考生转身,True,635.41
+leave_seat,turn_body_left_90_03_174519.jpg,离开座位,离开座位（转身90）,转身,警告，考生转身,True,540.95
+leave_seat,turn_body_left_90_04_174520.jpg,离开座位,离开座位（转身90）,转身,警告，考生转身,True,559.5
+leave_seat,turn_body_right_90_01_174527.jpg,离开座位,离开座位（转身90）,转身,警告，考生转身,True,464.87
+leave_seat,turn_body_right_90_02_174527.jpg,离开座位,离开座位（转身90）,转身,警告，考生转身,True,490.3
+leave_seat,turn_body_right_90_03_174527.jpg,离开座位,离开座位（转身90）,转身,警告，考生转身,True,445.66
+leave_seat,turn_body_right_90_04_174527.jpg,离开座位,离开座位（转身90）,转身,警告，考生转身,True,495.59
+leave_seat,turn_head_01_174533.jpg,离开座位,离开座位（转头）,转头,警告，考生视线偏移,False,537.4
+leave_seat,turn_head_02_174533.jpg,离开座位,离开座位（转头）,转头,警告，考生视线偏移,False,614.8
+leave_seat,turn_head_03_174534.jpg,离开座位,离开座位（转头）,转头,警告，考生视线偏移,False,623.9
+leave_seat,turn_head_04_174534.jpg,离开座位,离开座位（转头）,转头,警告，考生视线偏移,False,568.28
+leave_seat,turn_head_05_174536.jpg,离开座位,离开座位（转头）,转头,警告，考生视线偏移,False,609.05
+leave_seat,turn_head_06_174536.jpg,离开座位,离开座位（转头）,转头,警告，考生视线偏移,False,550.56
+leave_seat,turn_head_07_174537.jpg,离开座位,离开座位（转头）,转头,正常考试中 ...,False,576.78
+multi_person,person_entering_01_173414.jpg,多人,多人,多人,警告，多人出现在考场,True,146.28
+multi_person,person_entering_02_173416.jpg,多人,多人,多人,正常考试中 ...,False,505.32
+multi_person,person_entering_03_173420.jpg,多人,多人,多人,正常考试中 ...,False,510.11
+multi_person,person_entering_04_173421.jpg,多人,多人,多人,正常考试中 ...,False,522.94
+multi_person,person_entering_05_173421.jpg,多人,多人,多人,正常考试中 ...,False,521.69
+multi_person,person_entering_06_173422.jpg,多人,多人,多人,警告，多人出现在考场,True,170.18
+multi_person,person_entering_07_173422.jpg,多人,多人,多人,警告，考生疑似打电话,False,683.98
+multi_person,person_entering_08_173423.jpg,多人,多人,多人,正常考试中 ...,False,579.73
+multi_person,person_entering_09_173427.jpg,多人,多人,多人,正常考试中 ...,False,567.1
+multi_person,person_entering_10_173427.jpg,多人,多人,多人,警告，多人出现在考场,True,132.21
+multi_person,two_persons_01_173341.jpg,多人,多人,多人,警告，多人出现在考场,True,81.18
+multi_person,two_persons_02_173346.jpg,多人,多人,多人,警告，多人出现在考场,True,72.25
+multi_person,two_persons_03_173352.jpg,多人,多人,多人,警告，多人出现在考场,True,70.51
+multi_person,two_persons_04_173355.jpg,多人,多人,多人,警告，多人出现在考场,True,71.22
+multi_person,two_persons_05_173355.jpg,多人,多人,多人,警告，多人出现在考场,True,88.21
+multi_person,two_persons_06_173356.jpg,多人,多人,多人,警告，多人出现在考场,True,92.59
+multi_person,two_persons_07_173400.jpg,多人,多人,多人,警告，多人出现在考场,True,93.08
+multi_person,two_persons_08_173402.jpg,多人,多人,多人,警告，多人出现在考场,True,83.32
+multi_person,two_persons_09_173402.jpg,多人,多人,多人,警告，多人出现在考场,True,89.25
+multi_person,two_persons_10_173403.jpg,多人,多人,多人,警告，多人出现在考场,True,84.07
+multi_person,two_persons_talking_01_173434.jpg,多人,多人,多人,警告，多人出现在考场,True,161.07
+multi_person,two_persons_talking_02_173436.jpg,多人,多人,多人,警告，多人出现在考场,True,170.67
+multi_person,two_persons_talking_03_173446.jpg,多人,多人,多人,警告，多人出现在考场,True,158.78
+multi_person,two_persons_talking_04_173447.jpg,多人,多人,多人,警告，多人出现在考场,True,207.61
+multi_person,two_persons_talking_05_173449.jpg,多人,多人,多人,警告，多人出现在考场,True,84.15
+multi_person,two_persons_talking_06_173450.jpg,多人,多人,多人,警告，多人出现在考场,True,183.54
+multi_person,two_persons_talking_07_173451.jpg,多人,多人,多人,警告，多人出现在考场,True,163.39
+multi_person,two_persons_talking_08_173453.jpg,多人,多人,多人,警告，多人出现在考场,True,80.57
+multi_person,two_persons_talking_09_173453.jpg,多人,多人,多人,警告，多人出现在考场,True,85.45
+multi_person,two_persons_talking_10_173454.jpg,多人,多人,多人,警告，多人出现在考场,True,82.59
+normal,normal_front_01_174349.jpg,正常考试,正常考试,正常,正常考试中 ...,True,571.37
+normal,normal_front_02_174351.jpg,正常考试,正常考试,正常,正常考试中 ...,True,637.26
+normal,normal_front_03_174402.jpg,正常考试,正常考试,正常,正常考试中 ...,True,2145.36
+normal,normal_front_04_174402.jpg,正常考试,正常考试,正常,正常考试中 ...,True,495.48
+normal,normal_front_05_174403.jpg,正常考试,正常考试,正常,正常考试中 ...,True,545.01
+normal,normal_front_06_174404.jpg,正常考试,正常考试,正常,正常考试中 ...,True,550.05
+normal,normal_front_07_174407.jpg,正常考试,正常考试,正常,正常考试中 ...,True,572.64
+normal,normal_front_08_174407.jpg,正常考试,正常考试,正常,正常考试中 ...,True,523.56
+normal,normal_front_09_174408.jpg,正常考试,正常考试,正常,正常考试中 ...,True,611.0
+normal,normal_front_10_174408.jpg,正常考试,正常考试,正常,正常考试中 ...,True,581.3
+normal,normal_side_01_174409.jpg,正常考试,正常考试,正常,正常考试中 ...,True,567.78
+normal,normal_side_02_174409.jpg,正常考试,正常考试,正常,正常考试中 ...,True,577.25
+normal,normal_side_03_174417.jpg,正常考试,正常考试,正常,正常考试中 ...,True,528.9
+normal,normal_side_04_174417.jpg,正常考试,正常考试,正常,正常考试中 ...,True,526.75
+normal,normal_side_05_174418.jpg,正常考试,正常考试,正常,正常考试中 ...,True,515.88
+normal,normal_side_06_174418.jpg,正常考试,正常考试,正常,正常考试中 ...,True,536.19
+normal,normal_side_07_174418.jpg,正常考试,正常考试,正常,正常考试中 ...,True,535.11
+normal,normal_side_08_174419.jpg,正常考试,正常考试,正常,正常考试中 ...,True,624.48
+normal,normal_side_09_174420.jpg,正常考试,正常考试,正常,正常考试中 ...,True,573.75
+normal,normal_side_10_174420.jpg,正常考试,正常考试,正常,正常考试中 ...,True,571.1
+normal,normal_writing_01_174421.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,正常考试中 ...,True,522.04
+normal,normal_writing_02_174424.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,警告，考生转头,True,700.11
+normal,normal_writing_03_174424.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,警告，考生转头,True,599.27
+normal,normal_writing_04_174427.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,警告，考生转头,True,538.35
+normal,normal_writing_05_174427.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,警告，考生转头,True,508.38
+normal,normal_writing_06_174427.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,警告，考生转头,True,476.39
+normal,normal_writing_07_174431.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,正常考试中 ...,True,525.62
+normal,normal_writing_08_174433.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,正常考试中 ...,True,584.63
+normal,normal_writing_09_174433.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,正常考试中 ...,True,570.1
+normal,normal_writing_10_174435.jpg,视线偏移,视线偏移（低头写字归视线偏移）,,正常考试中 ...,True,540.97
+phone_call,phone_left_01_174548.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,547.95
+phone_call,phone_left_02_174549.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,581.71
+phone_call,phone_left_03_174549.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,552.51
+phone_call,phone_left_04_174549.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,578.02
+phone_call,phone_left_05_174550.jpg,打电话,打电话,电话,正常考试中 ...,False,521.62
+phone_call,phone_left_06_174550.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,576.6
+phone_call,phone_left_07_174551.jpg,打电话,打电话,电话,正常考试中 ...,False,587.75
+phone_call,phone_left_08_174551.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,536.07
+phone_call,phone_left_09_174552.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,573.03
+phone_call,phone_left_10_174553.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,552.13
+phone_call,phone_look_down_01_174609.jpg,视线偏移,视线偏移（低头看手机）,,警告，考生转头,True,550.14
+phone_call,phone_look_down_02_174609.jpg,视线偏移,视线偏移（低头看手机）,,警告，考生转头,True,525.53
+phone_call,phone_look_down_03_174610.jpg,视线偏移,视线偏移（低头看手机）,,正常考试中 ...,True,544.64
+phone_call,phone_look_down_04_174611.jpg,视线偏移,视线偏移（低头看手机）,,警告，考生转头,True,525.97
+phone_call,phone_look_down_05_174611.jpg,视线偏移,视线偏移（低头看手机）,,警告，考生转头,True,623.08
+phone_call,phone_look_down_06_174612.jpg,视线偏移,视线偏移（低头看手机）,,正常考试中 ...,True,599.34
+phone_call,phone_look_down_07_174612.jpg,视线偏移,视线偏移（低头看手机）,,警告，考生转头,True,550.25
+phone_call,phone_look_down_08_174614.jpg,视线偏移,视线偏移（低头看手机）,,警告，考生转头,True,572.97
+phone_call,phone_look_down_09_174616.jpg,视线偏移,视线偏移（低头看手机）,,警告，考生转头,True,541.35
+phone_call,phone_look_down_10_174616.jpg,视线偏移,视线偏移（低头看手机）,,正常考试中 ...,True,626.91
+phone_call,phone_right_01_174555.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,550.35
+phone_call,phone_right_02_174555.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,516.81
+phone_call,phone_right_03_174555.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,485.08
+phone_call,phone_right_04_174555.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,504.44
+phone_call,phone_right_05_174556.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,624.24
+phone_call,phone_right_06_174556.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,593.07
+phone_call,phone_right_07_174556.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,570.37
+phone_call,phone_right_08_174556.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,525.15
+phone_call,phone_right_09_174557.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,553.2
+phone_call,phone_right_10_174557.jpg,打电话,打电话,电话,警告，考生疑似打电话,True,559.49
+stretch_arm,stretch_both_01_174702.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,552.13
+stretch_arm,stretch_both_02_174702.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,531.08
+stretch_arm,stretch_both_03_174703.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,574.67
+stretch_arm,stretch_both_04_174703.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,622.79
+stretch_arm,stretch_both_05_174703.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,492.21
+stretch_arm,stretch_both_06_174704.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,540.05
+stretch_arm,stretch_both_07_174704.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,569.88
+stretch_arm,stretch_both_08_174704.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,539.39
+stretch_arm,stretch_both_09_174705.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,532.29
+stretch_arm,stretch_both_10_174705.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,635.16
+stretch_arm,stretch_left_01_174626.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,547.23
+stretch_arm,stretch_left_02_174626.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,624.59
+stretch_arm,stretch_left_03_174626.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,674.77
+stretch_arm,stretch_left_04_174627.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,581.75
+stretch_arm,stretch_left_05_174627.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,534.94
+stretch_arm,stretch_left_06_174627.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,494.48
+stretch_arm,stretch_left_07_174627.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,487.6
+stretch_arm,stretch_left_08_174628.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,583.3
+stretch_arm,stretch_left_09_174628.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,542.83
+stretch_arm,stretch_left_10_174629.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,555.8
+stretch_arm,stretch_right_01_174631.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,572.01
+stretch_arm,stretch_right_02_174631.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,631.16
+stretch_arm,stretch_right_03_174631.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,559.78
+stretch_arm,stretch_right_04_174632.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,916.89
+stretch_arm,stretch_right_05_174632.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,876.46
+stretch_arm,stretch_right_06_174632.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,572.58
+stretch_arm,stretch_right_07_174633.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,594.51
+stretch_arm,stretch_right_08_174634.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,684.83
+stretch_arm,stretch_right_09_174634.jpg,伸胳膊,伸胳膊,伸展,警告，考生伸展胳膊,True,748.39
+stretch_arm,stretch_right_10_174635.jpg,伸胳膊,伸胳膊,伸展,正常考试中 ...,False,902.96
