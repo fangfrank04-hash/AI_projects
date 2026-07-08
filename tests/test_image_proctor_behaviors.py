@@ -32,6 +32,16 @@ class ImageProctorBehaviorTest(unittest.TestCase):
 
         self.assertNotIn("多人", actual)
 
+    def test_detects_horizontal_right_arm_stretch(self):
+        actual = analyze_sample(Path("stretch_arm") / "stretch_right_10_174635.jpg")
+
+        self.assertIn("\u4f38\u5c55", actual)
+
+    def test_side_normal_exam_is_not_stretch_arm(self):
+        actual = analyze_sample(Path("normal") / "normal_side_08_174419.jpg")
+
+        self.assertNotIn("\u4f38\u5c55", actual)
+
 
 if __name__ == "__main__":
     unittest.main()

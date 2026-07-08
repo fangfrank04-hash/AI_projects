@@ -28,6 +28,10 @@ class ImageProctor:
         self.m_fPhoneWristEarDist = 0.55      # 打电话：腕耳归一化距离 < 0.55
         self.m_fPhoneArmAngle = 30            # 打电话：对应侧臂角 < 30°（手臂弯曲贴头）
         self.m_fStretchArmAngle = 140         # 伸展：肩-肘-腕夹角 > 140°
+        self.m_fHorizontalStretchArmAngle = 165
+        self.m_fHorizontalStretchVisibility = 0.4
+        self.m_fHorizontalStretchArmLength = 1.8
+        self.m_fHorizontalStretchWristEarDist = 2.5
         self.m_fTurnBodyShoulderDist = 0.25   # 转身90度：双肩归一化距离 < 0.25
         self.m_fVisibilityThreshold = 0.5     # 关键点 visibility 过滤阈值
 
@@ -343,6 +347,32 @@ class ImageProctor:
         fCos = max(-1.0, min(1.0, fDot / (fNormBA * fNormBC)))
         return math.degrees(math.acos(fCos))
 
+    def __IsHorizontalStretchArm(self, in_stShoulder, in_stElbow, in_stWrist, in_stEar, in_stOtherShoulder):
+        """Check horizontal or low arm extension missed by the above-shoulder stretch rule."""
+        fPointVisibility = min(
+            in_stShoulder.visibility,
+            in_stElbow.visibility,
+            in_stWrist.visibility,
+        )
+        if fPointVisibility < self.m_fHorizontalStretchVisibility:
+            return False
+
+        fShoulderDist = self.__Distance(in_stShoulder, in_stOtherShoulder)
+        if fShoulderDist < 1e-6:
+            return False
+
+        fArmAngle = self.__Angle3(in_stShoulder, in_stElbow, in_stWrist)
+        fArmLength = self.__Distance(in_stShoulder, in_stWrist) / fShoulderDist
+        fWristEarDist = self.__Distance(in_stWrist, in_stEar) / fShoulderDist
+        fWristShoulderY = in_stWrist.y - in_stShoulder.y
+
+        return (
+            fArmAngle >= self.m_fHorizontalStretchArmAngle
+            and fArmLength >= self.m_fHorizontalStretchArmLength
+            and fWristEarDist >= self.m_fHorizontalStretchWristEarDist
+            and 0 <= fWristShoulderY <= 1.0
+        )
+
     def __CheckPoseActions(self, in_stLandmarks):
         """
         检测 4 个 Pose 动作（转头由现有 solvePnP 处理，不在此方法内）。
@@ -433,6 +463,20 @@ class ImageProctor:
                         (str(self.m_iWarningCount), (255, 0, 0)),
                     ]
                     return True
+
+        # Horizontal or low arm stretch: wrist may be below shoulder, but the arm must
+        # be straight, long, and far from the ear to avoid phone-call false positives.
+        if self.__IsVisible(ls) and self.__IsVisible(rs):
+            if (
+                self.__IsHorizontalStretchArm(ls, le_l, lw, le, rs)
+                or self.__IsHorizontalStretchArm(rs, re_l, rw, re, ls)
+            ):
+                self.m_iWarningCount += 1
+                self.m_listText = [
+                    ("警告，考生伸展胳膊", (255, 0, 0)),
+                    (str(self.m_iWarningCount), (255, 0, 0)),
+                ]
+                return True
 
         # ===== 3. 转身 90 度（2条件：双肩距<0.25 + 排除双臂伸直）=====
         # 排除条件：如果双臂角都 > 140° 则是伸胳膊不是转身
