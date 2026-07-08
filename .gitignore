@@ -38,8 +38,7 @@ target/
 .DS_Store
 Thumbs.db
 
-# uv
-uv.lock
+# uv（注意：uv.lock 必须提交，不能忽略！它锁定依赖版本保证可复现构建）
 
 # 临时文件
 *.tmp
