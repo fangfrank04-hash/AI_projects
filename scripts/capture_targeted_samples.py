@@ -5,6 +5,8 @@ Run from project root:
     .venv\\Scripts\\python.exe scripts\\capture_targeted_samples.py
 
 Useful options:
+    .venv\\Scripts\\python.exe scripts\\capture_targeted_samples.py --plan single
+    .venv\\Scripts\\python.exe scripts\\capture_targeted_samples.py --plan multi
     .venv\\Scripts\\python.exe scripts\\capture_targeted_samples.py --plan focused
     .venv\\Scripts\\python.exe scripts\\capture_targeted_samples.py --camera 1
     .venv\\Scripts\\python.exe scripts\\capture_targeted_samples.py --countdown 3
@@ -370,9 +372,13 @@ FOCUSED_PLAN = [
 
 
 def build_capture_plan(plan_name: str) -> list[dict]:
-    if plan_name != "focused":
-        raise ValueError(f"Unsupported capture plan: {plan_name}")
-    return [dict(item) for item in FOCUSED_PLAN]
+    if plan_name == "focused":
+        return [dict(item) for item in FOCUSED_PLAN]
+    if plan_name == "single":
+        return [dict(item) for item in FOCUSED_PLAN if item["category_dir"] != "multi_person"]
+    if plan_name == "multi":
+        return [dict(item) for item in FOCUSED_PLAN if item["category_dir"] == "multi_person"]
+    raise ValueError(f"Unsupported capture plan: {plan_name}")
 
 
 def find_system_font() -> str | None:
@@ -634,7 +640,7 @@ def capture_samples(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Capture targeted AI proctoring samples with detailed guidance.")
-    parser.add_argument("--plan", default="focused", choices=["focused"], help="Capture plan to use.")
+    parser.add_argument("--plan", default="single", choices=["single", "multi", "focused"], help="Capture plan to use.")
     parser.add_argument("--camera", type=int, default=0, help="OpenCV camera index.")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT_DIR), help="Output directory.")
     parser.add_argument("--countdown", type=int, default=2, help="Countdown seconds before saving each photo.")

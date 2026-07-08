@@ -10,6 +10,18 @@ class CaptureTargetedSamplesTest(unittest.TestCase):
 
         self.assertEqual(120, sum(item["count"] for item in plan))
 
+    def test_single_plan_excludes_multi_person_items(self):
+        plan = capture.build_capture_plan("single")
+
+        self.assertEqual(80, sum(item["count"] for item in plan))
+        self.assertNotIn("multi_person", {item["category_dir"] for item in plan})
+
+    def test_multi_plan_only_contains_multi_person_items(self):
+        plan = capture.build_capture_plan("multi")
+
+        self.assertEqual(40, sum(item["count"] for item in plan))
+        self.assertEqual({"multi_person"}, {item["category_dir"] for item in plan})
+
     def test_every_capture_item_has_guidance_fields(self):
         plan = capture.build_capture_plan("focused")
 
