@@ -604,6 +604,23 @@ class XinferenceChat(Base):
         base_url = urljoin(base_url, "v1")
         super().__init__(key, model_name, base_url, **kwargs)
 
+    def _clean_conf(self, gen_conf):
+        raw_conf = dict(gen_conf or {})
+        requested = raw_conf.get("max_tokens", 14000)
+        try:
+            requested = int(requested)
+        except (TypeError, ValueError):
+            requested = 14000
+
+        cleaned_conf = super()._clean_conf(raw_conf)
+        cleaned_conf["max_tokens"] = min(max(requested, 1), 16384)
+        logger.info(
+            "Xinference generation config: model=%s max_tokens=%s",
+            self.model_name,
+            cleaned_conf["max_tokens"],
+        )
+        return cleaned_conf
+
 
 class HuggingFaceChat(Base):
     _FACTORY_NAME = "HuggingFace"

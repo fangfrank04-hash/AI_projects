@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 from rag.nlp import rag_tokenizer, query
 import numpy as np
+import time
 from common.doc_store.doc_store_base import MatchDenseExpr, FusionExpr, OrderByExpr, DocStoreConnection
 from common.string_utils import remove_redundant_spaces
 from common.float_utils import get_float
@@ -491,8 +492,10 @@ class Dealer:
         if isinstance(tenant_ids, str):
             tenant_ids = tenant_ids.split(",")
 
+        _t_search = time.perf_counter()
         sres = await self.search(req, [index_name(tid) for tid in tenant_ids], kb_ids, embd_mdl, highlight,
                            rank_feature=rank_feature)
+        _t = time.perf_counter(); logging.info(f"[⏱ retrieval内部] ES搜索完成: {(_t - _t_search)*1000:.0f} ms, 结果数={sres.total}")
         # Temporary retrieval-side guard: prune chunks whose parent document no
         # longer exists before reranking and returning results.
         sres = await self._prune_deleted_chunks(sres)
@@ -501,6 +504,7 @@ class Dealer:
             return ranks
 
         if rerank_mdl and sres.total > 0:
+            _t_rerank = time.perf_counter(); logging.info(f"[⏱ retrieval内部] 开始rerank, chunk数量={sres.total}")
             sim, tsim, vsim = self.rerank_by_model(
                 rerank_mdl,
                 sres,
@@ -509,15 +513,19 @@ class Dealer:
                 vector_similarity_weight,
                 rank_feature=rank_feature,
             )
+            _t = time.perf_counter(); logging.info(f"[⏱ retrieval内部] rerank完成(模型重排): {(_t - _t_rerank)*1000:.0f} ms")
         else:
             if settings.DOC_ENGINE_INFINITY:
                 # Don't need rerank here since Infinity normalizes each way score before fusion.
+                _t_rerank = time.perf_counter()
                 sim = [sres.field[id].get("_score", 0.0) for id in sres.ids]
                 sim = [s if s is not None else 0.0 for s in sim]
                 tsim = sim
                 vsim = sim
+                _t = time.perf_counter(); logging.info(f"[⏱ retrieval内部] Infinity分数提取: {(_t - _t_rerank)*1000:.0f} ms")
             else:
                 # ElasticSearch doesn't normalize each way score before fusion.
+                _t_rerank = time.perf_counter(); logging.info(f"[⏱ retrieval内部] 开始ES本地重排, chunk数量={sres.total}")
                 sim, tsim, vsim = self.rerank(
                     sres,
                     question,
@@ -525,6 +533,7 @@ class Dealer:
                     vector_similarity_weight,
                     rank_feature=rank_feature,
                 )
+                _t = time.perf_counter(); logging.info(f"[⏱ retrieval内部] ES本地重排完成: {(_t - _t_rerank)*1000:.0f} ms")
 
         sim_np = np.array(sim, dtype=np.float64)
         if sim_np.size == 0:

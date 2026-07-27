@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python test_docx_docling.py test.docx)",
+      "Bash(pip show *)",
+      "Bash(pip install *)"
+    ]
+  }
+}

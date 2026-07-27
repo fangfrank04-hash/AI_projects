@@ -2045,7 +2045,6 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
 # ====================================
 
     async def chat(self, dialog, messages, stream=True, **kwargs):
-        t_start = time.perf_counter()
         kb_ids = kwargs.get("kb_ids") or dialog.kb_ids
         request = kwargs.get("request")
         kb_permission = kwargs.get("kb_permission")
@@ -2071,6 +2070,7 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
             return
 
         chat_start_ts = timer()
+        _prev = chat_start_ts
 
         check_llm_ts = timer()
         langfuse_tracer = None
@@ -2170,16 +2170,19 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
                 attachments = None
 
         refine_question_ts = timer()
+        _t = timer(); logger.info(f"[⏱ 段耗时] 前置汇总(准备检索): {(_t - _prev)*1000:.0f} ms"); _prev = _t
 
         thought = ""
         kbinfos = {"total": 0, "chunks": [], "doc_aggs": []}
         knowledges = []
 
         if attachments is not None and has_knowledge_parameter:
+           
             # TODO: 当前业务约束下单请求 KB 只允许属于同一 tenant，后续统一检索链路时可将此处收敛为单 tenant 请求。
             tenant_ids = list(set([kb.tenant_id for kb in kbs]))
             knowledges = []
             if prompt_config.get("reasoning", False):
+                _t = timer(); logger.info(f"[⏱ 段耗时] 深度推理模式(DeepResearcher): {(_t - _prev)*1000:.0f} ms"); _prev = _t
                 reasoner = DeepResearcher(
                     chat_mdl,
                     prompt_config,
@@ -2227,6 +2230,7 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
                             dialog.top_n,
                             fallback_query=original_question,
                         )
+                        _t = timer(); logger.info(f"[⏱ 段耗时] 多路向量检索: {(_t - _prev)*1000:.0f} ms"); _prev = _t
                         logger.info(
                             msg="查询重写融合后的 chunk_ids=%s",
                             args=[ck.get("chunk_id") for ck in kbinfos.get("chunks", [])],
@@ -2247,6 +2251,9 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
                             rerank_mdl=rerank_mdl,
                             rank_feature=label_question("".join(questions), kbs)
                         )
+                    _t = timer(); logger.info(f"[⏱ 段耗时] 单路向量检索: {(_t - _prev)*1000:.0f} ms"); _prev = _t
+        else:
+            logger.info(f"[⏱ 段耗时] ⚠️ 跳过检索！attachments={attachments}, has_knowledge_parameter={has_knowledge_parameter}")
 
         if prompt_config.get("toc_enhance"):
             cks = retriever.retrieval_by_toc("".join(questions), kbinfos["chunks"], tenant_ids, chat_mdl,
@@ -2294,17 +2301,56 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
         kwargs["knowledge"] = "\n-------\n" + "\n\n-------\n".join(knowledges)
         gen_conf = dialog.llm_setting.model_dump()
         msg = [{"role": "system", "content": prompt_config["system"].format(**kwargs)}]
-        prompt_citation = ""
+        prompt4citation = ""
         if knowledges and (prompt_config.get("quote", True)) and kwargs.get("quote", True):
             prompt4citation = citation_prompt()
-            msg.extend([{"role": m["role"], "content": re.sub(r"<\d{4}>\s*", "", m["content"])} for m in messages if
-                        m["role"] != "system"])
-            used_token_count, msg = message_fit_in(msg, int(max_tokens * 0.95))
-            assert len(msg) >= 2, f"message_fit_in has bug: {msg}"
-            prompt = msg[0]["content"]
 
+        msg.extend([{"role": m["role"], "content": re.sub(r"<\d{4}>\s*", "", m["content"])} for m in messages if
+                    m["role"] != "system"])
+
+        llm_id = dialog.llm_id or ""
+        # ① 输入上限：网关按【字符】限制，用“中英混合÷2.5”换算成 token 交给 message_fit_in。
+        #    min(..., max_tokens) 防止数据库 max_tokens 配太小时，③的输出额度算成负数
+        if "Qwen3.6-27B" in llm_id:
+            input_token_limit = min(13107, max_tokens)   # 32768 字符 ÷ 2.5
+            input_char_limit = 32768
+        elif "Qwen3.6-35B-A3B" in llm_id:
+            input_token_limit = min(20480, max_tokens)   # 51200 字符 ÷ 2.5
+            input_char_limit = 51200
+        else:
+            input_token_limit = int(max_tokens * 0.95)
+            input_char_limit = None
+
+        used_token_count, msg = message_fit_in(msg, input_token_limit)
+        assert len(msg) >= 2, f"message_fit_in has bug: {msg}"
+
+        # ② 字符兜底：token 只是估算，网关真正卡的是 len() 字符数。留 8% 余量做最终保险，
+        #    优先裁 system（知识库最长），拦住“token没超但字符超”的英文/混合内容
+        if input_char_limit:
+            safe_char_limit = int(input_char_limit * 0.92)
+            if sum(len(m["content"]) for m in msg) > safe_char_limit:
+                others = sum(len(m["content"]) for m in msg[1:])
+                msg[0]["content"] = msg[0]["content"][: max(0, safe_char_limit - others)]
+                used_token_count = sum(num_tokens_from_string(m["content"]) for m in msg)
+
+        prompt = msg[0]["content"]
+
+        # ③ 输出上限：16384 字符 ÷ 2.5 = 6554 token；再受会话配置和“总窗口−输入”约束
         if "max_tokens" in gen_conf:
-            gen_conf["max_tokens"] = min(gen_conf["max_tokens"], max_tokens - used_token_count)
+            gen_conf["max_tokens"] = min(
+                gen_conf["max_tokens"],
+                6554,
+                max_tokens - used_token_count,
+            )
+
+        logger.info(
+            "Token limits: model=%s context=%s input_limit=%s input_used=%s output_limit=%s",
+            llm_id,
+            max_tokens,
+            input_token_limit,
+            used_token_count,
+            gen_conf.get("max_tokens"),
+        )
 
         if is_generate_questions and knowledges:
             # 相关问题生成task
@@ -2346,75 +2392,89 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
                     recall_docs = kbinfos["doc_aggs"]
                 kbinfos["doc_aggs"] = recall_docs
 
-        if not kbinfos["doc_aggs"]:
-            _chunks = kbinfos["chunks"]
+            if not kbinfos["doc_aggs"]:
+                _chunks = kbinfos["chunks"]
 
-            def _filed_count(data, *fileds):
-                def make_key(item):
-                    return tuple(item[filed] for filed in fileds)
-                return Counter(make_key(item) for item in data)
+                def _filed_count(data, *fileds):
+                    def make_key(item):
+                        return tuple(item[filed] for filed in fileds)
+                    return Counter(make_key(item) for item in data)
 
-            doc_aggs = []
-            _count = _filed_count(_chunks, ["docnm_kwd", "doc_id", "file_id"])
-            for (docnm_kwd, doc_id, file_id), cnt in _count.items():
-                doc_aggs.append({"doc_name": docnm_kwd, "doc_id": doc_id, "file_id": file_id, "count": cnt})
-            kbinfos["doc_aggs"] = doc_aggs
+                doc_aggs = []
+                _count = _filed_count(_chunks, ["docnm_kwd", "doc_id", "file_id"])
+                for (docnm_kwd, doc_id, file_id), cnt in _count.items():
+                    doc_aggs.append({"doc_name": docnm_kwd, "doc_id": doc_id, "file_id": file_id, "count": cnt})
+                kbinfos["doc_aggs"] = doc_aggs
 
-        refs = deepcopy(kbinfos)
-        for c in refs["chunks"]:
-            if c.get("vector"):
-                del c["vector"]
+            refs = deepcopy(kbinfos)
+            for c in refs["chunks"]:
+                if c.get("vector"):
+                    del c["vector"]
 
-        if answer.lower().find("invalid key") >= 0 or answer.lower().find("invalid api") >= 0:
-            answer += "\nPlease set LLM API-Key in 'User Setting -> Model providers -> API-Key'"
+            if answer.lower().find("invalid key") >= 0 or answer.lower().find("invalid api") >= 0:
+                answer += "\nPlease set LLM API-Key in 'User Setting -> Model providers -> API-Key'"
 
-        finish_chat_ts = timer()
+            finish_chat_ts = timer()
 
-        total_time_cost = (finish_chat_ts - chat_start_ts) * 1000
-        check_llm_time_cost = (check_llm_ts - chat_start_ts) * 1000
-        check_langfuse_tracer_cost = (check_langfuse_tracer_ts - check_llm_ts) * 1000
-        bind_embedding_time_cost = (bind_models_ts - check_langfuse_tracer_ts) * 1000
-        refine_question_time_cost = (refine_question_ts - bind_models_ts) * 1000
-        retrieval_time_cost = (retrieval_ts - refine_question_ts) * 1000
-        generate_result_time_cost = (finish_chat_ts - retrieval_ts) * 1000
+            total_time_cost = (finish_chat_ts - chat_start_ts) * 1000
+            check_llm_time_cost = (check_llm_ts - chat_start_ts) * 1000
+            check_langfuse_tracer_cost = (check_langfuse_tracer_ts - check_llm_ts) * 1000
+            bind_embedding_time_cost = (bind_models_ts - check_langfuse_tracer_ts) * 1000
+            refine_question_time_cost = (refine_question_ts - bind_models_ts) * 1000
+            retrieval_time_cost = (retrieval_ts - refine_question_ts) * 1000
+            generate_result_time_cost = (finish_chat_ts - retrieval_ts) * 1000
 
-        tk_num = num_tokens_from_string(think + answer)
-        prompt = "\n\n#### Query:\n%s" % "".join(questions)
-        prompt += (
-            f"\n{prompt}\n\n"
-            #f"### Time elapsed:\n"
-            f" - Total: {total_time_cost:.1f}ms\n"
-            f" - Check LLM: {check_llm_time_cost:.1f}ms\n"
-            f" - Check Langfuse tracer: {check_langfuse_tracer_cost:.1f}ms\n"
-            f" - Bind models: {bind_embedding_time_cost:.1f}ms\n"
-            f" - Query refinement(LLM): {refine_question_time_cost:.1f}ms\n"
-            f" - Retrieval: {retrieval_time_cost:.1f}ms\n"
-            f" - Generate answer: {generate_result_time_cost:.1f}ms\n"
-            "### Token usage:\n"
-            f" - Generated tokens(approximately): {tk_num}\n"
-            f" - Token speed: {int(tk_num / (generate_result_time_cost / 1000))}/s"
-        )
+            tk_num = num_tokens_from_string(think + answer)
+            prompt = "\n\n#### Query:\n%s" % "".join(questions)
+            prompt += (
+                f"\n{prompt}\n\n"
+                #f"### Time elapsed:\n"
+                f" - Total: {total_time_cost:.1f}ms\n"
+                f" - Check LLM: {check_llm_time_cost:.1f}ms\n"
+                f" - Check Langfuse tracer: {check_langfuse_tracer_cost:.1f}ms\n"
+                f" - Bind models: {bind_embedding_time_cost:.1f}ms\n"
+                f" - Query refinement(LLM): {refine_question_time_cost:.1f}ms\n"
+                f" - Retrieval: {retrieval_time_cost:.1f}ms\n"
+                f" - Generate answer: {generate_result_time_cost:.1f}ms\n"
+                "### Token usage:\n"
+                f" - Generated tokens(approximately): {tk_num}\n"
+                f" - Token speed: {int(tk_num / (generate_result_time_cost / 1000))}/s"
+            )
 
-        # Add a condition check to call the end method only if langfuse_tracer exists
-        if langfuse_tracer and "langfuse_generation" in locals():
-            langfuse_output = "\n" + re.sub(r"\s+", " ### Query: ", prompt, flags=re.DOTALL)
-            langfuse_output = {"time_elapsed": re.sub(pattern="\n", repl=" ", string=langfuse_output), "created_at": time.time()}
-            langfuse_generation.update(output=langfuse_output)
-            langfuse_generation.end()
-        refs["prompt"] = prompt
-        final_result = {
-            "answer": think + answer,
-            "reference": refs,
-            "prompt": re.sub(pattern=r'\n', repl=" ", string=prompt),
-            "created_at": time.time(),
-            "generate_questions": questions_generate if knowledges else []
-        }
-        # TODO: 传给结果审批通过，再新传优秩，poetry add lancedb datasets ragas
-        # if prompt_config.get("evaluation_enabled", False):
-        #     from app.core.rag.evaluation.eval_wrapper import eval_answer
-        #     final_result = eval_answer(final_result, question=" ".join(questions))
+            # Add a condition check to call the end method only if langfuse_tracer exists
+            if langfuse_tracer and "langfuse_generation" in locals():
+                langfuse_output = "\n" + re.sub(r"\s+", " ### Query: ", prompt, flags=re.DOTALL)
+                langfuse_output = {"time_elapsed": re.sub(pattern="\n", repl=" ", string=langfuse_output), "created_at": time.time()}
+                langfuse_generation.update(output=langfuse_output)
+                langfuse_generation.end()
+            refs["prompt"] = prompt
+            refs["cost_time"] = f"Retrieval:{retrieval_time_cost:.1f}ms"
+            refs["token_usage"] = {
+                "input_tokens": used_token_count,
+                "output_tokens": tk_num,
+                "total_tokens": used_token_count + tk_num,
+                "count_source": "local_estimate",
+            }
+            logger.info(
+                "Token usage estimate: input=%s output=%s total=%s",
+                used_token_count,
+                tk_num,
+                used_token_count + tk_num,
+            )
+            final_result = {
+                "answer": think + answer,
+                "reference": refs,
+                "prompt": re.sub(pattern=r'\n', repl=" ", string=prompt),
+                "created_at": time.time(),
+                "generate_questions": questions_generate if knowledges else []
+            }
+            # TODO: 传给结果审批通过，再新传优秩，poetry add lancedb datasets ragas
+            # if prompt_config.get("evaluation_enabled", False):
+            #     from app.core.rag.evaluation.eval_wrapper import eval_answer
+            #     final_result = eval_answer(final_result, question=" ".join(questions))
 
-        logger.info(final_result)
+            logger.info(final_result)
+            return final_result
 
         if langfuse_tracer:
             langfuse_generation = langfuse_tracer.start_generation(
@@ -2430,36 +2490,51 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
             expert_config = prompt_config.get('expert')
             expert = kwargs.get("is_expert", expert_config.get('enabled') if expert_config else False)
             user_input = questions[-1] if questions else ''
-            log_doc_expert = LongDocAnalysisAgent()
+            log_doc_expert = LongDocAnalysisExpert()
+
             # 意图识别
-            irr = log_doc_expert.intent_recognition(user_input)
-            print(f'irr>>>>>>{irr}')
-            # 判断是否设置历史配置
+            _prev = timer()
+            # irr = log_doc_expert.intent_recognition(user_input)
+            irt = ''     # 意图识别思考
+            irr = ''     # 意图识别结果
+
+            for chunk in log_doc_expert.intent_recognition(user_input):
+                if chunk['type'] == 'reasoning':
+                    irt += chunk['content']
+                elif chunk['type'] == 'answer':
+                    irt += chunk['content']
+                    irr += chunk['content']
+                yield {"answer": f"<think{irt}</think", "reference": {}, "audio_binary": ''}
+            logger.info(f"意图识别耗时: {irr}")
+            _t = timer()
+            logger.info(f"意图识别777: {(_t - _prev) * 1000:.1f}ms")
+            _prev = _t
+            # 判断是否设置历史轮数
             history_len_config = prompt_config.get("history_len")
             history_len_obj = history_len_config if history_len_config else {}
             history_len_enabled = history_len_obj.get("enabled", False)
             history_len_value = int(history_len_obj.get("len", 1))
-            history_value = (history_len_value - 1) * 2 + 1
-
-            if expert and irr != '正常流程':
+            history_value = (history_len_value -1) * 2 +1
+            irr_listt = ["长文档摘要要总结", "条统计"]
+            if expert and irr in irr_listt:
                 logger.info('expert mode enabled, using log_doc_expert')
-                doc_ids = [item['doc_id'] for item in kbinfos['doc_aggs']]
-                tenant_id = dialog.tenant_id
+
+                doc_ids = [item['doc_id'] for item in kbinfos["doc_aggs"]]
+                tenant_id, = dialog.tenant_id,
                 kb_msg = messages
-                log_doc_expert = LongDocAnalysisAgent()
+
+                expert_prompt = await log_doc_expert.process(user_input, doc_ids, tenant_id, intent=irr)
 
                 try:
-                    async for ans in log_doc_expert.process(user_input, doc_ids, tenant_id, intent=irr):
-                        print(ans, 'end=', flush=True)
+                    for ans in chat_mdl.chat_streamly(expert_prompt, msg[1:], gen_conf):
                         if thought:
                             # 深度思考
                             ans = re.sub(pattern=r'</?think>', repl="", string=ans)
                             ans = re.sub(pattern=r'^.*?<think', repl="", string=ans, flags=re.DOTALL)
                         else:
                             ### 兼容qwen3-8b mac 非标准think，此模型在content内容包含<think/></think标签而非reasoning_content
-                            if ans.startswith("<think") and not ans.endswith("</think") and ans.find(
-                                "</think") == -1 and "<\think":
-                                pass
+                            if ans.startswith("<think") and not ans.endswith("</think") and ans.find("</think") == -1:
+                                ans = ans + "</\think>"
                             ### 兼容qwen3-8b mac 非标准think
                         answer += ans
                         delta_ans = ans[len(last_ans):]
@@ -2469,19 +2544,23 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
                         yield {"answer": thought + answer, "reference": {},
                                "audio_binary": self.tts(tts_mdl, delta_ans)}
                         delta_ans = answer[len(last_ans):]
-                        yield {"answer": thought + answer, "reference": {}, "audio_binary": self.tts(tts_mdl, delta_ans)}
-                    if is_generate_questions and knowledges and generate_questions_task:
-                        # 相关问题生成结果获取
-                        questions_generate_res = await generate_questions_task.wait_result()
-                        if questions_generate_res.is_err:
-                            raise questions_generate_res.error
-                        if questions_generate_res and hasattr(questions_generate_res, "return_value"):
-                            questions_generate = questions_generate_res.return_value
-                    yield decorate_answer(thought + answer, questions_generate)
+                        if delta_ans:
+                            yield {"answer": thought + answer, "reference": {}, "audio_binary": self.tts(tts_mdl, delta_ans)}
+                        if is_generate_questions and knowledges and generate_questions_task:
+                            # 相关问题生成任务结果获取
+                            questions_generate_res = await generate_questions_task.wait_result()
+                            if questions_generate_res.is_err:
+                                raise questions_generate_res.error
+                            if questions_generate_res and hasattr(questions_generate_res, "return_value"):
+                                questions_generate = questions_generate_res.return_value
+                        print(f"result------answer>>>{questions_generate}")
+                        yield decorate_answer(thought + answer, questions_generate)
                 except Exception as e:
                     logger.error(f'log_doc_expert failed: {e}, falling back to normal logic')
             else:
                 for ans in chat_mdl.chat_streamly(prompt + prompt4citation, msg[1:][-history_value:] if history_len_enabled else msg[1:], gen_conf):
+                    _t = timer()
+                    logger.info(f"正常流程777: {(_t - _prev) * 1000:.1f}ms")
                     if thought:
                         # 深度思考
                         ans = re.sub(pattern=r'</?think>', repl="", string=ans)
@@ -2501,15 +2580,13 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
                     delta_ans = answer[len(last_ans):]
                     if delta_ans:
                         yield {"answer": thought + answer, "reference": {}, "audio_binary": self.tts(tts_mdl, delta_ans)}
-
                     if is_generate_questions and knowledges and generate_questions_task:
-                        # 相关问题生成结果获取
+                        # 相关问题生成任务结果获取
                         questions_generate_res = await generate_questions_task.wait_result()
                         if questions_generate_res.is_err:
                             raise questions_generate_res.error
                         if questions_generate_res and hasattr(questions_generate_res, "return_value"):
                             questions_generate = questions_generate_res.return_value
-
                     yield decorate_answer(thought + answer, questions_generate)
 
         else:
@@ -2521,6 +2598,131 @@ async def _stream_with_think_delta(stream_iter, min_tokens: int = 16):
             yield res
 
         return
+
+
+async def async_ask(question, kb_ids, tenant_id, chat_llm_name=None, search_config={}, search_id=None):
+    doc_ids = search_config.get("doc_ids", [])
+    rerank_mdl = None
+    kb_ids = search_config.get("kb_ids", kb_ids)
+    chat_llm_name = search_config.get("chat_id", chat_llm_name)
+    rerank_id = search_config.get("rerank_id", "")
+    meta_data_filter = search_config.get("meta_data_filter")
+    include_reference_metadata, metadata_fields = _resolve_reference_metadata(search_config)
+
+    kbs = KnowledgebaseService.get_by_ids(kb_ids)
+    if not kbs:
+        if not kb_ids:
+            error = "**ERROR**: No KB selected"
+        else:
+            error = "**ERROR**: The selected KB is not valid"
+        yield {"answer": error, "reference": {}, "final": True}
+        return
+
+    embedding_list = list(set([kb.embd_id for kb in kbs]))
+
+    is_knowledge_graph = all([kb.parser_id == ParserType.KG for kb in kbs])
+    retriever = settings.retriever if not is_knowledge_graph else settings.kg_retriever
+    embd_owner_tenant_id = kbs[0].tenant_id
+    embd_model_config = get_model_config_from_provider_instance(embd_owner_tenant_id, LLMType.EMBEDDING, embedding_list[0])
+    embd_mdl = LLMBundle(embd_owner_tenant_id, embd_model_config)
+    chat_model_config = get_model_config_from_provider_instance(tenant_id, LLMType.CHAT, chat_llm_name)
+    chat_mdl = LLMBundle(tenant_id, chat_model_config)
+    if rerank_id:
+        rerank_model_config = get_model_config_from_provider_instance(tenant_id, LLMType.RERANK, rerank_id)
+        rerank_mdl = LLMBundle(tenant_id, rerank_model_config)
+    max_tokens = chat_mdl.max_length
+    tenant_ids = list(set([kb.tenant_id for kb in kbs]))
+
+    if meta_data_filter:
+        doc_ids = await apply_meta_data_filter(
+            meta_data_filter,
+            None,
+            question,
+            chat_mdl,
+            doc_ids,
+            kb_ids=kb_ids,
+            metas_loader=lambda: DocMetadataService.get_flatted_meta_by_kbs(kb_ids),
+        )
+
+    vector_similarity_weight = search_config.get("vector_similarity_weight", 0.3)
+    try:
+        full_text_weight = 1 - vector_similarity_weight
+    except TypeError:
+        full_text_weight = None
+    logger.debug(
+        "Search async_ask retrieval weight: search_id=%s tenant_id=%s kb_count=%s "
+        "vector_similarity_weight=%s full_text_weight=%s",
+        search_id,
+        tenant_id,
+        len(kb_ids),
+        vector_similarity_weight,
+        full_text_weight,
+    )
+
+    kbinfos = await retriever.retrieval(
+        question=question,
+        embd_mdl=embd_mdl,
+        tenant_ids=tenant_ids,
+        kb_ids=kb_ids,
+        page=1,
+        page_size=12,
+        similarity_threshold=search_config.get("similarity_threshold", 0.1),
+        vector_similarity_weight=vector_similarity_weight,
+        top=search_config.get("top_k", 1024),
+        doc_ids=doc_ids,
+        aggs=True,
+        rerank_mdl=rerank_mdl,
+        rank_feature=label_question(question, kbs),
+        trace_id=search_id,
+    )
+    if include_reference_metadata:
+        logging.debug(
+            "reference_metadata enrichment enabled for async_ask: chunk_count=%d metadata_fields=%s",
+            len(kbinfos.get("chunks", [])),
+            metadata_fields,
+        )
+        _enrich_chunks_with_document_metadata(kbinfos.get("chunks", []), metadata_fields)
+
+    knowledges = kb_prompt(kbinfos, max_tokens)
+    sys_prompt = PROMPT_JINJA_ENV.from_string(ASK_SUMMARY).render(knowledge="\n".join(knowledges))
+
+    msg = [{"role": "user", "content": question}]
+
+    async def decorate_answer(answer):
+        nonlocal knowledges, kbinfos, sys_prompt
+        # Main retrieval no longer ships chunk vectors back from ES. Pull
+        # them on demand for the chunks we are about to cite.
+        await _hydrate_chunk_vectors(retriever, kbinfos.get("chunks", []), tenant_ids, kb_ids)
+        answer, idx = retriever.insert_citations(answer, [ck["content_ltks"] for ck in kbinfos["chunks"]], [ck["vector"] for ck in kbinfos["chunks"]], embd_mdl, tkweight=0.7, vtweight=0.3)
+        idx = set([kbinfos["chunks"][int(i)]["doc_id"] for i in idx])
+        recall_docs = [d for d in kbinfos["doc_aggs"] if d["doc_id"] in idx]
+        if not recall_docs:
+            recall_docs = kbinfos["doc_aggs"]
+        kbinfos["doc_aggs"] = recall_docs
+        refs = deepcopy(kbinfos)
+        for c in refs["chunks"]:
+            if c.get("vector"):
+                del c["vector"]
+
+        if answer.lower().find("invalid key") >= 0 or answer.lower().find("invalid api") >= 0:
+            answer += " Please set LLM API-Key in 'User Setting -> Model Providers -> API-Key'"
+        refs["chunks"] = chunks_format(refs)
+        return {"answer": answer, "reference": refs}
+
+    stream_iter = chat_mdl.async_chat_streamly_delta(sys_prompt, msg, {"temperature": 0.1})
+    last_state = None
+    async for kind, value, state in _stream_with_think_delta(stream_iter):
+        last_state = state
+        if kind == "marker":
+            flags = {"start_to_think": True} if value == "<think>" else {"end_to_think": True}
+            yield {"answer": "", "reference": {}, "final": False, **flags}
+            continue
+        yield {"answer": value, "reference": {}, "final": False}
+    full_answer = last_state.full_text if last_state else ""
+    final = await decorate_answer(_extract_visible_answer(full_answer))
+    final["final"] = True
+    final["answer"] = ""
+    yield final
 
 
 # ====================================
