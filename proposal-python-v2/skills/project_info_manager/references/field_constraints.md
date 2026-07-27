@@ -201,7 +201,7 @@ result = await update_project_info(
 **修改示例**：
 ```python
 # 勾选职责
-result = await update_member_duty(
+result = await update_duty(
     project_id="P001",
     name="张三",
     duty_name="需求评审",
@@ -209,7 +209,7 @@ result = await update_member_duty(
 )
 
 # 取消职责
-result = await update_member_duty(
+result = await update_duty(
     project_id="P001",
     name="张三",
     duty_name="需求评审",

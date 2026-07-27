@@ -29,7 +29,7 @@ metadata:
 | update_project_info | 修改产品编号/产品名称 | project_id, productCode?, productName? |
 | get_team_members_list | 获取团队成员列表 | project_id |
 | add_team_member | 添加新成员 | project_id, name, role |
-| update_member_duty | 勾选/取消职责 | project_id, name, duty_name, checked |
+| update_duty | 勾选/取消职责 | project_id, name, duty_name, checked |
 
 ## 执行流程
 
@@ -69,8 +69,8 @@ metadata:
 - 修改产品编号 → update_project_info(project_id, productCode="新值")
 - 修改产品名称 → update_project_info(project_id, productName="新值")
 - 添加成员 → add_team_member(project_id, name="姓名", role="角色")
-- 勾选职责 → update_member_duty(project_id, name="姓名", duty_name="职责名", checked=true)
-- 取消职责 → update_member_duty(project_id, name="姓名", duty_name="职责名", checked=false)
+- 勾选职责 → update_duty(project_id, name="姓名", duty_name="职责名", checked=true)
+- 取消职责 → update_duty(project_id, name="姓名", duty_name="职责名", checked=false)
 
 ### 步骤4：确认结果
 

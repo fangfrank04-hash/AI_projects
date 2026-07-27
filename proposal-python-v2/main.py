@@ -66,6 +66,11 @@ class FillbackV3Request(BaseModel):
     draftTeamData: list = None
 
 
+class SetCookieRequest(BaseModel):
+    """Java 推送 Cookie 请求体"""
+    java_cookie: str
+
+
 @app.get("/api/chat/stream")
 async def chat_stream(
     request: Request,
@@ -90,7 +95,7 @@ async def chat_stream(
 
     async def event_generator():
         try:
-            yield format_sse("connected", {"sessionId": session_id, "status": "ok"})
+            yield format_sse({"type": "connected", "sessionId": session_id, "status": "ok"})
             last_activity = asyncio.get_event_loop().time()
 
             while True:
@@ -102,17 +107,17 @@ async def chat_stream(
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=5.0)
 
-                    if msg.get("event") == "close":
+                    if msg.get("data", {}).get("type") == "close":
                         print(f"[SSE] Connection closed: session_id={session_id}")
                         break
 
-                    yield format_sse(msg["event"], msg["data"])
+                    yield format_sse(msg["data"])
                     last_activity = asyncio.get_event_loop().time()
 
                 except asyncio.TimeoutError:
                     now = asyncio.get_event_loop().time()
                     if now - last_activity >= HEARTBEAT_INTERVAL:
-                        yield format_sse("ping", {"time": int(now)})
+                        yield format_sse({"type": "ping", "time": int(now)})
                         last_activity = now
         finally:
             # 无论何种原因退出（正常关闭、客户端断开、异常），必须清理 Agent 资源
@@ -217,15 +222,15 @@ async def chat_v3(request: ChatRequest):
     async def event_generator():
         try:
             await agent.initialize()
-            yield format_sse("connected", {"status": "ok"})
+            yield format_sse({"type": "connected", "status": "ok"})
 
             # __INIT__ 仅加载预览数据，不走消息处理（避免重复问候）
             if request.message == "__INIT__":
                 # drain queue：清空 initialize 过程中积压的事件
                 while not queue.empty():
                     msg = queue.get_nowait()
-                    if msg.get("event") != "close":
-                        yield format_sse(msg["event"], msg["data"])
+                    if msg.get("data", {}).get("type") != "close":
+                        yield format_sse(msg["data"])
                 return
 
             # 后台启动消息处理，结果通过 queue 返回
@@ -235,20 +240,20 @@ async def chat_v3(request: ChatRequest):
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=60.0)
                 except asyncio.TimeoutError:
-                    yield format_sse("error", {"message": "操作超时，请重试"})
+                    yield format_sse({"type": "error", "content": "操作超时，请重试"})
                     break
 
-                if msg.get("event") == "close":
+                if msg.get("data", {}).get("type") == "close":
                     break
 
-                yield format_sse(msg["event"], msg["data"])
+                yield format_sse(msg["data"])
 
                 # Agent 处理完毕 → 清空队列残余事件后结束
                 if task.done():
                     while not queue.empty():
                         msg = queue.get_nowait()
-                        if msg.get("event") != "close":
-                            yield format_sse(msg["event"], msg["data"])
+                        if msg.get("data", {}).get("type") != "close":
+                            yield format_sse(msg["data"])
                     break
         finally:
             await agent.close()
@@ -312,6 +317,17 @@ async def health_check():
         "version": "2.0.0",
         "active_sessions": len(agent_pool)
     }
+
+
+@app.post("/api/auth/set-cookie")
+async def set_java_cookie(request: SetCookieRequest):
+    """
+    接收 Java 后台推送的认证 Cookie
+    Java 在处理前端请求时，将用户的 SESSION Cookie 通过此接口传给 Python
+    """
+    from mcp_server.config import set_cookie
+    set_cookie(request.java_cookie)
+    return {"ok": True, "cookie_length": len(request.java_cookie)}
 
 
 @app.on_event("startup")

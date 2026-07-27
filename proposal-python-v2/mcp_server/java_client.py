@@ -6,7 +6,7 @@ import json
 import httpx
 from typing import Any, Dict
 
-from mcp_server.config import JAVA_BASE_URL, REQUEST_TIMEOUT, JAVA_COOKIE
+from mcp_server.config import JAVA_BASE_URL, REQUEST_TIMEOUT, get_cookie, clear_cookie
 
 
 class JavaClientError(Exception):
@@ -38,13 +38,8 @@ class JavaHttpClient:
             self.invoke_url = f"{self.base_url}/portal/RestAction.invoke.do"
         self.timeout = httpx.Timeout(timeout, read=30.0, write=10.0, pool=5.0)
 
-        # Cookie 认证：从 JAVA_COOKIE 环境变量解析
-        headers = {}
-        if JAVA_COOKIE:
-            headers["Cookie"] = JAVA_COOKIE
-            print(f"[JavaClient] Cookie 已配置 (长度: {len(JAVA_COOKIE)})")
-
-        self.client = httpx.AsyncClient(timeout=self.timeout, headers=headers)
+        # 不固定 headers，每次请求动态获取 Cookie
+        self.client = httpx.AsyncClient(timeout=self.timeout)
 
     async def call(self, service_path: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -60,9 +55,26 @@ class JavaHttpClient:
         print(f"[JavaClient] POST {self.invoke_url}?url={service_path}")
         print(f"[JavaClient] data: params={data['params'][:200]}")
 
+        # 动态设置 Cookie
+        cookie = get_cookie()
+        if cookie:
+            self.client.headers["Cookie"] = cookie
+        elif "Cookie" in self.client.headers:
+            del self.client.headers["Cookie"]
+
         response = await self.client.post(
             self.invoke_url, params=query_params, data=data
         )
+
+        # 检测 401 → 清缓存抛异常
+        if response.status_code == 401:
+            clear_cookie()
+            raise JavaClientError(
+                code=401,
+                message="Java 认证已过期，Cookie 已清空，等待 Java 重新推送",
+                detail="HTTP 401 Unauthorized"
+            )
+
         response.raise_for_status()
 
         text = response.text
@@ -94,9 +106,26 @@ class JavaHttpClient:
         print(f"[JavaClient] call_direct → {service_path}")
         print(f"[JavaClient] form keys: {list(form_data.keys())}, pmProject length: {len(form_data.get('pmProject', ''))}")
 
+        # 动态设置 Cookie
+        cookie = get_cookie()
+        if cookie:
+            self.client.headers["Cookie"] = cookie
+        elif "Cookie" in self.client.headers:
+            del self.client.headers["Cookie"]
+
         response = await self.client.post(
             self.invoke_url, params=query_params, data=form_data
         )
+
+        # 检测 401 → 清缓存抛异常
+        if response.status_code == 401:
+            clear_cookie()
+            raise JavaClientError(
+                code=401,
+                message="Java 认证已过期，Cookie 已清空，等待 Java 重新推送",
+                detail="HTTP 401 Unauthorized"
+            )
+
         response.raise_for_status()
 
         text = response.text
@@ -116,6 +145,9 @@ class JavaHttpClient:
         """
         try:
             return await self.call(service_path, params)
+        except JavaClientError:
+            # 直接往上抛，让调用方感知到认证过期等问题
+            raise
         except httpx.TimeoutException as e:
             raise JavaClientError(
                 code=-32000,

@@ -21,7 +21,7 @@
 **触发场景**：
 - 非PM用户调用 `update_project_info`
 - 非PM用户调用 `add_team_member`
-- 非PM用户调用 `update_member_duty`
+- 非PM用户调用 `update_duty`
 
 **处理逻辑**：
 1. 检查 `isPM` 标志
@@ -96,7 +96,7 @@ async def tool_update_project_info(project_id: str, productCode: str = "", produ
 **触发场景**：
 - 调用任何工具时缺少 `project_id`
 - 调用 `add_team_member` 时缺少 `name` 或 `role`
-- 调用 `update_member_duty` 时缺少 `duty_name` 或 `checked`
+- 调用 `update_duty` 时缺少 `duty_name` 或 `checked`
 
 **处理逻辑**：
 1. 解析用户指令，提取参数
@@ -157,7 +157,7 @@ return "请确认：您要将【产品编号】修改为什么值？"
 ```
 
 **触发场景**：
-- 调用 `update_member_duty` 时，成员不存在
+- 调用 `update_duty` 时，成员不存在
 
 **处理逻辑**：
 1. 先调用 `get_team_members_list` 获取最新团队列表

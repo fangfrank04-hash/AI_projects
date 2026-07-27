@@ -27,3 +27,36 @@ JAVA_COOKIE = os.getenv("JAVA_COOKIE", "")
 
 # 日志级别
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+# ============================================================
+# Cookie 动态缓存（运行时通过 /api/auth/set-cookie 更新）
+# 优先级：内存缓存 > .env 的 JAVA_COOKIE（降级兜底）
+# ============================================================
+_cookie_cache: str = ""
+
+
+def set_cookie(cookie_str: str) -> None:
+    """更新 Cookie 缓存（由 main.py 的 /api/auth/set-cookie 接口调用）"""
+    global _cookie_cache
+    _cookie_cache = cookie_str.strip()
+    print(f"[Config] Cookie 已更新 (长度: {len(_cookie_cache)})")
+
+
+def get_cookie() -> str:
+    """
+    获取当前有效的 Cookie
+    优先级: 内存缓存 > .env JAVA_COOKIE（降级兜底）
+    """
+    global _cookie_cache
+    cookie = _cookie_cache or JAVA_COOKIE
+    if not cookie:
+        print("[Config] 警告: Cookie 未设置，调 Java 可能失败")
+    return cookie
+
+
+def clear_cookie() -> None:
+    """清空 Cookie 缓存（Java 返回 401 时调用）"""
+    global _cookie_cache
+    if _cookie_cache:
+        print("[Config] Cookie 已清空（可能已过期）")
+    _cookie_cache = ""

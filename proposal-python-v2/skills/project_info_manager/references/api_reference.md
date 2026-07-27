@@ -185,7 +185,7 @@ result = await add_team_member(
 
 ---
 
-### 5. update_member_duty
+### 5. update_duty
 
 **功能**：勾选/取消职责
 
@@ -211,7 +211,7 @@ result = await add_team_member(
 **使用示例**：
 ```python
 # 勾选职责
-result = await update_member_duty(
+result = await update_duty(
     project_id="P001",
     name="张三",
     duty_name="需求评审",
@@ -219,7 +219,7 @@ result = await update_member_duty(
 )
 
 # 取消职责
-result = await update_member_duty(
+result = await update_duty(
     project_id="P001",
     name="张三",
     duty_name="需求评审",

@@ -432,7 +432,7 @@ async def batch_sync_team_data(project_id: str, team_layout: str) -> str:
 # Tool 7: 更新成员职责
 # ============================================================
 @mcp.tool()
-async def update_member_duty(project_id: str, name: str, duty_name: str, checked: bool) -> str:
+async def update_duty(project_id: str, name: str, duty_name: str, checked: bool) -> str:
     """
     为团队成员勾选或取消勾选职责。
     参数:
@@ -509,14 +509,16 @@ async def update_member_duty(project_id: str, name: str, duty_name: str, checked
         print(f"[MCP] updateDuty response: {json.dumps(java_result, ensure_ascii=False)[:200]}")
 
         if java_result.get("success"):
-            # 重新获取最新数据
+            # 调 findUserById 重查最新团队数据
             updated = await client.safe_call(
-                "/itmp/pmProjectMemberService/findPmProjectMemberList",
-                {"pmProjectId": project_id, "page": 0, "size": 100}
+                "/itmp/pmProjectmanagement/findUserById",
+                {"pmProjectId": project_id, "pageable": {"page": 0, "size": 100}}
             )
-            if "content" in updated:
-                updated["content"] = [_normalize_team_member(m) for m in updated["content"]]
-            java_result["data"] = updated
+            members = []
+            if "content" in updated and isinstance(updated.get("content"), dict):
+                data = updated["content"].get("data", {})
+                members = data.get("content", [])
+            java_result["data"] = members
 
         return json.dumps(java_result, ensure_ascii=False)
     except JavaClientError as e:
@@ -529,7 +531,7 @@ async def update_member_duty(project_id: str, name: str, duty_name: str, checked
 
 
 # ============================================================
-# Tool 8: 查询用户信息
+# Tool 8: 查询团队职责信息
 # ============================================================
 @mcp.tool()
 async def get_user_info(project_id: str) -> str:
