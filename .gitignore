@@ -231,6 +231,7 @@ internal/cpp/cmake-build-debug/
 # Go server build output
 bin/*
 !bin/.gitkeep
-.claude/settings.local.json.qoder/
+.claude/settings.local.json
+.qoder/
 evaluation_migration/site-packages/
 evaluation_migration/site-packages.zip
