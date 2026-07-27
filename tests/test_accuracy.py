@@ -3,10 +3,10 @@
 对比预期结果，输出准确率统计报告。
 使用方法: cd AiProctor0623 && python test_accuracy.py
 """
-import os
-import sys
 import io
+import os
 import re
+import sys
 
 from PIL import Image
 

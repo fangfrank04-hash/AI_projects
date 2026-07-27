@@ -18,7 +18,6 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 
-
 # 离线 Swagger UI 的 HTML 页面（所有资源从本地加载，不依赖 CDN）
 SWAGGER_UI_HTML = """
 <!DOCTYPE html>

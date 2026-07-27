@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+
 def WriteChineseText(in_stImage, in_strText, in_stPosition, in_stColor=(0, 255, 0), in_iSize=30):
     if (isinstance(in_stImage, np.ndarray)):  # 判断是否OpenCV图片类型
         in_stImage = Image.fromarray(cv2.cvtColor(in_stImage, cv2.COLOR_BGR2RGB))

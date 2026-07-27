@@ -1,8 +1,11 @@
-import cv2
 import datetime
-import numpy as np
+
+import cv2
 import mediapipe as mp
+import numpy as np
+
 from .Toolkit import WriteCenterText
+
 
 # 前置摄像头类
 class FrontCamera:
@@ -130,7 +133,7 @@ class FrontCamera:
         for i, stPoint in enumerate(in_stFaceLandmarks.landmark):
             # 只获取 6 个关键点坐标
             if i == 33 or i == 263 or i == 1 or i == 61 or i == 291 or i == 199:
-                x, y = int(stPoint.x * iWidth), int(stPoint.y * iHeight)    
+                x, y = int(stPoint.x * iWidth), int(stPoint.y * iHeight)
 
                 # 添加到列表
                 listFace2d.append((x, y))
@@ -140,7 +143,7 @@ class FrontCamera:
 
         # 转换为 numpy 数组
         listFace2d = np.array(listFace2d, dtype=np.float64)
-        listFace3d = np.array(listFace3d, dtype=np.float64)    
+        listFace3d = np.array(listFace3d, dtype=np.float64)
 
         # 获取摄像头矩阵
         listCameraMatrix = np.array([
@@ -188,7 +191,7 @@ class FrontCamera:
     def __Checkindependence(self, in_iCount):
         if in_iCount == 1:
             return
-        
+
         # 每秒判断一次
         stNowTime = datetime.datetime.now()
         if stNowTime < self.m_stLastTime + datetime.timedelta(seconds=1):

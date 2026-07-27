@@ -39,6 +39,13 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 | GET | `/test` | 用内置测试图片测试人脸识别 |
 | POST | `/upload_face` | 上传图片识别监考动作 |
 
+所有业务接口统一返回 `{code, message, data}` 格式（`code=200` 表示成功，非 200 为业务错误，code 复用 HTTP 状态码语义）。
+`data` 为结构化检测结果，字段见 `app/schemas/proctor.py` 的 `DetectionData`。
+
+```json
+{ "code": 200, "message": "识别成功", "data": { "warning": false, "action_type": "normal", "action_label": "正常考试中", "warning_count": 0, "person_count": 1 } }
+```
+
 ### 上传图片示例
 
 ```bash
@@ -55,12 +62,11 @@ AiProctor0623/
 │   ├── api/v1/proctor.py   路由层（接收请求）
 │   ├── schemas/proctor.py  数据模型（定义响应格式）
 │   ├── services/           业务编排层（协调 api 和 ml）
-│   ├── core/config.py      配置管理（从 .env 读取）
+│   ├── core/               基础设施（config 配置 / logging 日志 / exceptions 异常）
 │   └── ml/                 机器学习核心代码
-│       ├── image_proctor.py    图片监考（432行核心逻辑）
+│       ├── image_proctor.py    图片监考（核心逻辑，~570行）
 │       ├── front_camera.py     前置摄像头实时监考
-│       ├── back_camera.py      后置摄像头（YOLO）
-│       └── toolkit.py          工具函数
+│       └── Toolkit.py          工具函数（写中文文字）
 ├── assets/                 静态资源
 │   ├── fonts/             字体文件
 │   └── test_images/       测试图片
@@ -78,6 +84,11 @@ AiProctor0623/
 ## 配置说明
 
 所有检测阈值都可以在 `.env` 文件中调整，不用改代码。详见 `.env.example`。
+
+## 新手向文档
+
+不熟悉后台分层结构的同学，先看 [`docs/新手向_后台架构说明.md`](docs/新手向_后台架构说明.md)，
+用「饭店」比喻讲清每层职责、请求全链路、以及如何自己动手验收。
 
 ## Docker 部署
 

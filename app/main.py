@@ -15,7 +15,12 @@ from fastapi import FastAPI
 
 from app.api.v1 import proctor
 from app.core.config import settings
+from app.core.exceptions import register_exception_handlers
+from app.core.logging import setup_logging
 from app.core.offline_docs import setup_offline_docs
+
+# 初始化日志（尽早，保证后续模块都能拿到配置好的 logger）
+setup_logging()
 
 app = FastAPI(
     title=settings.app_name,
@@ -27,6 +32,9 @@ app = FastAPI(
 
 # 配置离线 Swagger UI（内网也能访问 /docs 调试页面）
 setup_offline_docs(app)
+
+# 注册全局异常处理器（统一返回 {code, message, data}）
+register_exception_handlers(app)
 
 # 注册路由（标准 FastAPI APIRouter 写法）
 app.include_router(proctor.router)

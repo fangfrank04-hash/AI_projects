@@ -1,58 +1,138 @@
 """业务编排层（Services）
 
 负责协调 api 层和 ml 层之间的数据流转。
-api 层只管"收请求、返响应"，具体的业务逻辑（读文件、转格式、调模型）都在这里。
-
-这样分层的好处：以后要加"图片大小限制""格式校验""日志记录"，
-都加在这里，不会把 api 路由搞乱。
+api 层只管"收请求、返响应"，具体的业务逻辑（读文件、转格式、调模型、异常处理）都在这里。
 """
 import io
+import logging
 import os
 
-from PIL import Image
 from fastapi import UploadFile
+from PIL import Image, UnidentifiedImageError
 
 from app.core.config import settings
-from app.ml.image_proctor import ImageProctor
+from app.ml.image_proctor import FaceAngleThresholds, ImageProctor, ProctorResult
+from app.schemas.proctor import ApiResponse, DetectionData, StatusCode
+
+logger = logging.getLogger(__name__)
+
+# 上传图片大小上限（字节），默认 10MB
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+# 允许的图片 MIME 类型前缀
+ALLOWED_CONTENT_PREFIX = "image/"
+
+# 全局共享的识别器实例：模型只加载一次，跨请求复用（analyze 内部加锁保证线程安全）。
+_proctor = ImageProctor()
 
 
-def analyze_test_image() -> dict:
+def _build_face_angles(
+    max_left_angle: float | None = None,
+    max_right_angle: float | None = None,
+    max_up_angle: float | None = None,
+    max_down_angle: float | None = None,
+) -> FaceAngleThresholds | None:
+    """把接口传来的 4 个可选角度参数组装成 FaceAngleThresholds。
+
+    全部为 None（Java 未传任何参数）则返回 None，让 ml 层用默认值；
+    只传了部分参数时，未传的字段自动用 dataclass 默认值。
     """
-    分析内置测试图片（对应原 GET /test 接口）。
+    overrides = {
+        "max_left_angle": max_left_angle,
+        "max_right_angle": max_right_angle,
+        "max_up_angle": max_up_angle,
+        "max_down_angle": max_down_angle,
+    }
+    provided = {k: v for k, v in overrides.items() if v is not None}
+    if not provided:
+        return None
+    return FaceAngleThresholds(**provided)
 
-    返回值与原接口完全一致：
-        {"code": 0, "msg": "识别成功", "data": [...]}
-    或图片不存在时：
-        {"code": -1, "msg": "测试图片不存在（...）", "data": None}
+
+def _to_detection_data(result: ProctorResult) -> DetectionData:
+    """把 ml 层的 ProctorResult 映射为对外的结构化响应数据。"""
+    return DetectionData(
+        warning=result.warning,
+        action_type=result.action_type,
+        action_label=result.action_label,
+        warning_count=result.warning_count,
+        person_count=result.person_count,
+    )
+
+
+def analyze_test_image(
+    max_left_angle: float | None = None,
+    max_right_angle: float | None = None,
+    max_up_angle: float | None = None,
+    max_down_angle: float | None = None,
+) -> ApiResponse:
+    """分析内置测试图片（对应 GET /test 接口）。
+
+    4 个面部角度阈值参数均可选：不传则用代码默认值。
     """
     test_image_path = os.path.join(settings.test_images_dir, "person2.jpg")
     if not os.path.exists(test_image_path):
-        return {
-            "code": -1,
-            "msg": f"测试图片不存在（{test_image_path}），请放置一张人脸图片后重试",
-            "data": None,
-        }
+        logger.warning("测试图片不存在: %s", test_image_path)
+        return ApiResponse.error(
+            code=StatusCode.NOT_FOUND,
+            message=f"测试图片不存在（{test_image_path}），请放置一张人脸图片后重试",
+        )
 
-    proctor = ImageProctor()
-    resource = proctor.GetImageFaceAngle(test_image_path)
-    return {"code": 0, "msg": "识别成功", "data": resource}
+    face_angles = _build_face_angles(
+        max_left_angle, max_right_angle, max_up_angle, max_down_angle
+    )
+    try:
+        with Image.open(test_image_path) as image:
+            result = _proctor.analyze(image.convert("RGB"), face_angles=face_angles)
+    except (UnidentifiedImageError, OSError) as exc:
+        logger.exception("测试图片解析失败")
+        return ApiResponse.error(
+            code=StatusCode.INTERNAL_ERROR,
+            message=f"测试图片解析失败: {exc}",
+        )
+
+    return ApiResponse.success(data=_to_detection_data(result), message="识别成功")
 
 
-async def analyze_uploaded_face(file: UploadFile) -> dict:
+async def analyze_uploaded_face(
+    file: UploadFile,
+    max_left_angle: float | None = None,
+    max_right_angle: float | None = None,
+    max_up_angle: float | None = None,
+    max_down_angle: float | None = None,
+) -> ApiResponse:
+    """分析上传的人脸图片（对应 POST /upload_face 接口）。
+
+    4 个面部角度阈值参数均可选：不传则用代码默认值。
     """
-    分析上传的人脸图片（对应原 POST /upload_face 接口）。
+    # 1. 校验文件类型
+    if file.content_type and not file.content_type.startswith(ALLOWED_CONTENT_PREFIX):
+        return ApiResponse.error(
+            code=StatusCode.BAD_REQUEST,
+            message=f"不支持的文件类型: {file.content_type}，请上传图片",
+        )
 
-    返回值与原接口完全一致：
-        {"code": 0, "msg": "识别成功", "data": [...]}
-    """
-    proctor = ImageProctor()
-
-    # 1. 读取上传二进制流
+    # 2. 读取二进制流并校验大小
     file_bytes = await file.read()
-    # 2. 二进制流转 PIL 图像（适配内部处理逻辑）
-    img_stream = io.BytesIO(file_bytes)
-    pil_img = Image.open(img_stream)
+    if not file_bytes:
+        return ApiResponse.error(code=StatusCode.BAD_REQUEST, message="上传文件为空")
+    if len(file_bytes) > MAX_UPLOAD_SIZE:
+        return ApiResponse.error(
+            code=StatusCode.PAYLOAD_TOO_LARGE,
+            message=f"图片过大（>{MAX_UPLOAD_SIZE // (1024 * 1024)}MB）",
+        )
 
-    # 3. 调用 ImageProctor 分析
-    resource = proctor.GetImageFaceAngleByImg(pil_img)
-    return {"code": 0, "msg": "识别成功", "data": resource}
+    # 3. 解析为 PIL 图像并分析
+    face_angles = _build_face_angles(
+        max_left_angle, max_right_angle, max_up_angle, max_down_angle
+    )
+    try:
+        with Image.open(io.BytesIO(file_bytes)) as image:
+            result = _proctor.analyze(image.convert("RGB"), face_angles=face_angles)
+    except (UnidentifiedImageError, OSError) as exc:
+        logger.warning("上传图片解析失败: %s", exc)
+        return ApiResponse.error(
+            code=StatusCode.BAD_REQUEST,
+            message="图片解析失败，请确认上传的是有效图片",
+        )
+
+    return ApiResponse.success(data=_to_detection_data(result), message="识别成功")

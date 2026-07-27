@@ -40,6 +40,8 @@ class Settings:
     app_version: str = _get_str("APP_VERSION", "1.0.0")
     host: str = _get_str("HOST", "0.0.0.0")
     port: int = _get_int("PORT", 8000)
+    # 日志级别（DEBUG/INFO/WARNING/ERROR）
+    log_level: str = _get_str("LOG_LEVEL", "INFO")
 
     # ===== 路径配置 =====
     # 字体文件
