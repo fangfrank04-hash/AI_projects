@@ -2,6 +2,7 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image
 
@@ -10,11 +11,14 @@ from scripts.test_answer_manifest import AnswerRow
 
 
 class FakeProctor:
-    def __init__(self, actual):
-        self.actual = actual
+    def __init__(self, action_type, action_label):
+        self.result = SimpleNamespace(
+            action_type=action_type,
+            action_label=action_label,
+        )
 
-    def get_image_face_angle_by_img(self, _image):
-        return [(self.actual, (0, 0, 0))]
+    def analyze(self, _image):
+        return self.result
 
 
 class VerifyActionsReportTest(unittest.TestCase):
@@ -67,9 +71,9 @@ class VerifyActionsReportTest(unittest.TestCase):
             self.assertEqual("assets/test_images/included.jpg", answers[0].image_path)
 
     def test_gaze_away_does_not_accept_normal_or_leave_seat(self):
-        self.assertFalse(report.is_passed("视线偏移", "正常考试中"))
-        self.assertFalse(report.is_passed("视线偏移", "离开座位(考生转身)"))
-        self.assertTrue(report.is_passed("视线偏移", "警告，视线偏移"))
+        self.assertFalse(report.is_passed("视线偏移", "正常考试"))
+        self.assertFalse(report.is_passed("视线偏移", "离开座位"))
+        self.assertTrue(report.is_passed("视线偏移", "视线偏移"))
 
     def test_run_single_scores_against_answer_category(self):
         answer = AnswerRow(
@@ -85,9 +89,54 @@ class VerifyActionsReportTest(unittest.TestCase):
             root = Path(tmp)
             Image.new("RGB", (4, 4)).save(root / "sample.jpg")
 
-            row = report.run_single(FakeProctor("正常考试中"), answer, root)
+            row = report.run_single(
+                FakeProctor("normal", "正常考试中"), answer, root
+            )
 
         self.assertEqual("视线偏移", row["expected_category"])
+        self.assertEqual("正常考试", row["actual_category"])
+        self.assertFalse(row["passed"])
+
+    def test_turn_head_action_type_maps_to_gaze_away(self):
+        answer = AnswerRow(
+            image_path="sample.jpg",
+            source_set="samples_v2",
+            scenario="normal_writing",
+            expected_category="视线偏移",
+            split="eval",
+            include_in_main=True,
+            note="低头写字",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Image.new("RGB", (4, 4)).save(root / "sample.jpg")
+
+            row = report.run_single(
+                FakeProctor("turn_head", "视线偏移(考生转头)"), answer, root
+            )
+
+        self.assertEqual("视线偏移", row["actual_category"])
+        self.assertTrue(row["passed"])
+
+    def test_turn_body_action_type_remains_leave_seat(self):
+        answer = AnswerRow(
+            image_path="sample.jpg",
+            source_set="samples_v2",
+            scenario="turn_body_left_90",
+            expected_category="视线偏移",
+            split="eval",
+            include_in_main=True,
+            note="坐着转身",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Image.new("RGB", (4, 4)).save(root / "sample.jpg")
+
+            row = report.run_single(
+                FakeProctor("turn_body", "离开座位(考生转身)"), answer, root
+            )
+
+        self.assertEqual("离开座位", row["actual_category"])
         self.assertFalse(row["passed"])
 
     def test_build_summary_counts_pass_fail_and_latency(self):

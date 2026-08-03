@@ -10,9 +10,7 @@
 """
 
 import argparse
-import contextlib
 import csv
-import io
 import os
 import sys
 import time
@@ -30,13 +28,15 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 ANSWERS_PATH = ROOT_DIR / "assets" / "test_images" / "test_answers.csv"
 REPORTS_DIR = ROOT_DIR / "reports"
 
-EXPECTED_MARKERS = {
-    "正常考试": ("正常",),
-    "视线偏移": ("视线偏移",),
-    "离开座位": ("离开座位",),
-    "多人": ("多人",),
-    "打电话": ("电话",),
-    "伸胳膊": ("伸展",),
+ACTION_CATEGORY_MAP = {
+    "normal": "正常考试",
+    "gaze_away": "视线偏移",
+    "turn_head": "视线偏移",
+    "leave_seat": "离开座位",
+    "turn_body": "离开座位",
+    "multi_person": "多人",
+    "phone_call": "打电话",
+    "stretch_arm": "伸胳膊",
 }
 
 CSV_FIELDS = [
@@ -47,6 +47,8 @@ CSV_FIELDS = [
     "filename",
     "expected_category",
     "note",
+    "actual_action_type",
+    "actual_category",
     "actual",
     "passed",
     "elapsed_ms",
@@ -59,9 +61,9 @@ def collect_images(answers_path=ANSWERS_PATH, root_dir=ROOT_DIR):
     return [row for row in rows if row.include_in_main]
 
 
-def is_passed(expected_category, actual):
+def is_passed(expected_category, actual_category):
     """严格按业务大类判断，不接受其他类别作为兼容结果。"""
-    return any(marker in actual for marker in EXPECTED_MARKERS[expected_category])
+    return expected_category == actual_category
 
 
 def run_single(proctor, answer: AnswerRow, root_dir=ROOT_DIR):
@@ -69,12 +71,14 @@ def run_single(proctor, answer: AnswerRow, root_dir=ROOT_DIR):
     filepath = Path(root_dir) / answer.image_path
     start = time.time()
     try:
-        image = Image.open(filepath).convert("RGB")
-        # ImageProctor 内部有调试 print，这里收束到报告，不污染终端。
-        with contextlib.redirect_stdout(io.StringIO()):
-            texts = proctor.get_image_face_angle_by_img(image)
-        actual = texts[0][0] if texts else ""
+        with Image.open(filepath) as image:
+            result = proctor.analyze(image.convert("RGB"))
+        actual_action_type = getattr(result.action_type, "value", result.action_type)
+        actual_category = ACTION_CATEGORY_MAP.get(actual_action_type, "未知")
+        actual = result.action_label
     except Exception as exc:
+        actual_action_type = "error"
+        actual_category = "异常"
         actual = "异常: " + str(exc)
 
     elapsed_ms = round((time.time() - start) * 1000, 2)
@@ -86,8 +90,10 @@ def run_single(proctor, answer: AnswerRow, root_dir=ROOT_DIR):
         "filename": filepath.name,
         "expected_category": answer.expected_category,
         "note": answer.note,
+        "actual_action_type": actual_action_type,
+        "actual_category": actual_category,
         "actual": actual,
-        "passed": is_passed(answer.expected_category, actual),
+        "passed": is_passed(answer.expected_category, actual_category),
         "elapsed_ms": elapsed_ms,
     }
 
@@ -213,17 +219,18 @@ def write_reports(rows, summary, output_dir=REPORTS_DIR):
     if failed_rows:
         lines.extend(
             [
-                "| 文件 | 预期大类 | 预期描述 | 实际结果 | 耗时 |",
-                "|---|---|---|---|---:|",
+                "| 文件 | 预期大类 | 预期描述 | 实际大类 | 实际结果 | 耗时 |",
+                "|---|---|---|---|---|---:|",
             ]
         )
         for row in failed_rows:
             lines.append(
-                "| {filename} | {expected_category} | {note} | {actual} | "
+                "| {filename} | {expected_category} | {note} | {actual_category} | {actual} | "
                 "{elapsed_ms:.2f} ms |".format(
                     filename=row["filename"],
                     expected_category=row["expected_category"],
                     note=row.get("note") or row["expected_category"],
+                    actual_category=row.get("actual_category", "未记录"),
                     actual=row["actual"].replace("|", "/"),
                     elapsed_ms=float(row["elapsed_ms"]),
                 )
