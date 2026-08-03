@@ -1,0 +1,32 @@
+# AI 监考服务 —— 分离部署模式（环境镜像 + 挂载代码）
+#
+# 用法（在内网服务器、本文件所在目录执行，code/ 文件夹须与本文件同级）：
+#   1. 加载环境镜像： docker load -i aiproctor_base_1.1.0.tar
+#   2. 启动服务：     docker compose up -d
+#   3. 更新代码：     替换 code/ 里的文件 -> docker compose restart   （不用动镜像！）
+#
+# 注意：按子目录挂载，不能把整个 /app 盖掉（镜像内 /app/.venv 是 Python 环境）。
+services:
+  aiproctor:
+    image: aiproctor-base:1.1.0    # 环境镜像（不含代码）
+    container_name: aiproctor
+    ports:
+      - "8000:8000"                # 换端口改左边，如 "9000:8000"
+    restart: unless-stopped
+    # 多进程启动：--workers 2 开 2 个进程吃满多核（4核机建议 2~3，不超过核数）。
+    command: ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+    volumes:
+      - ./code/app:/app/app            # 业务代码
+      - ./code/assets:/app/assets      # 字体/离线文档/自测图
+      - ./code/models:/app/models      # AI 模型文件
+    environment:
+      - LOG_LEVEL=INFO
+      # 每个进程的并发模型池大小：总实例数 = workers × 本值，每实例约400MB。
+      # 4核机推荐 workers=2 × pool=2（总并行4，匹配4核，内存约1.6GB）。
+      - PROCTOR_POOL_SIZE=2
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ping')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

@@ -1,0 +1,47 @@
+# 环境基础镜像（分离部署模式）：只含 Python 3.12.9 + 系统库 + 全部依赖，不含业务代码。
+# 业务代码由 docker-compose 挂载进来（见 deploy_split/docker-compose.yml）。
+# 优点：以后只更新代码包（几 MB）即可，不用重拷 2GB 镜像；依赖变了才需重建本镜像。
+
+# ============ 阶段 1：builder —— 装依赖，产物 /app/.venv ============
+FROM python:3.12.9 AS builder
+
+# 钉死 uv 版本（与本地开发一致），保证构建可复现
+COPY --from=ghcr.io/astral-sh/uv:0.10.12 /uv /usr/local/bin/uv
+
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+
+WORKDIR /app
+
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# ============ 阶段 2：runtime —— 无 uv、无代码，等 compose 挂载 ============
+FROM python:3.12.9-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1
+
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --shell /usr/sbin/nologin appuser
+
+WORKDIR /app
+
+COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
+
+# 不 COPY 业务代码 —— app/assets/models 由 compose 挂载到 /app 下对应子目录
+
+USER appuser
+
+EXPOSE 8000
+# 代码挂载就位后即可运行；workers 数由 compose 的 command 指定
+CMD ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

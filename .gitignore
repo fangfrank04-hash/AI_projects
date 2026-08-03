@@ -47,3 +47,11 @@ _temp_*/
 
 # Memory
 .workbuddy/
+
+# Local agent working files
+.superpowers/
+.learnings/
+
+# Generated deployment artifacts
+deploy_split/*.tar
+*.bak_v*

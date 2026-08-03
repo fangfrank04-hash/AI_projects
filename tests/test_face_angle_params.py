@@ -59,13 +59,13 @@ class NoPollutionTest(unittest.TestCase):
                 max_left_angle=20, max_right_angle=-20, max_up_angle=20, max_down_angle=-20
             )
             _analyze(proctor, custom)
-            self.assertEqual(proctor.m_iMaxLeftAngle, 20)
-            self.assertEqual(proctor.m_iMaxDownAngle, -20)
+            self.assertEqual(proctor.max_left_angle, 20)
+            self.assertEqual(proctor.max_down_angle, -20)
 
             # 下一次请求不传参数，阈值必须回到默认，不能残留上次的自定义值。
             _analyze(proctor, None)
-            self.assertEqual(proctor.m_iMaxLeftAngle, DEFAULT_MAX_LEFT_ANGLE)
-            self.assertEqual(proctor.m_iMaxDownAngle, DEFAULT_MAX_DOWN_ANGLE)
+            self.assertEqual(proctor.max_left_angle, DEFAULT_MAX_LEFT_ANGLE)
+            self.assertEqual(proctor.max_down_angle, DEFAULT_MAX_DOWN_ANGLE)
         finally:
             proctor.close()
 

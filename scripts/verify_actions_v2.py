@@ -26,7 +26,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.ml.image_proctor import ImageProctor
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-SAMPLES_DIR = ROOT_DIR / "assets" / "test_images" / "samples_v2"
+# 默认扫两套数据源：samples_v2（180 张，7/3 拍）+ targeted_samples（125 张，7/8 和 7/17 拍）
+DEFAULT_SAMPLE_DIRS = [
+    ROOT_DIR / "assets" / "test_images" / "samples_v2",
+    ROOT_DIR / "assets" / "test_images" / "targeted_samples",
+]
 REPORTS_DIR = ROOT_DIR / "reports"
 
 # 文件名前缀 -> (大类, 预期关键词, 预期描述)
@@ -53,6 +57,9 @@ CATEGORY_MAP = {
     "two_persons": ("多人", "多人", "多人"),
     "person_entering": ("多人", "多人", "多人"),
     "two_persons_talking": ("多人", "多人", "多人"),
+    # targeted_samples 新前缀：从边缘进入 / 背后路过，都归多人
+    "person_enter": ("多人", "多人", "多人（边缘进入）"),
+    "person_pass_behind": ("多人", "多人", "多人（背后路过）"),
 
     # 打电话
     "phone_left": ("打电话", "电话", "打电话"),
@@ -76,19 +83,21 @@ CSV_FIELDS = [
 ]
 
 
-def collect_images(samples_dir=SAMPLES_DIR):
-    """收集样本图片，返回 (目录类别, 文件名, 文件路径) 列表。"""
-    samples_dir = Path(samples_dir)
+def collect_images(samples_dirs=None):
+    """收集样本图片（支持多个数据源目录），返回 (目录类别, 文件名, 文件路径) 列表。"""
+    if samples_dirs is None:
+        samples_dirs = DEFAULT_SAMPLE_DIRS
     images = []
-    if not samples_dir.exists():
-        return images
-
-    for category_dir in sorted(samples_dir.iterdir()):
-        if not category_dir.is_dir():
+    for samples_dir in samples_dirs:
+        samples_dir = Path(samples_dir)
+        if not samples_dir.exists():
             continue
-        for image_path in sorted(category_dir.iterdir()):
-            if image_path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
-                images.append((category_dir.name, image_path.name, image_path))
+        for category_dir in sorted(samples_dir.iterdir()):
+            if not category_dir.is_dir():
+                continue
+            for image_path in sorted(category_dir.iterdir()):
+                if image_path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
+                    images.append((category_dir.name, image_path.name, image_path))
     return images
 
 
@@ -116,7 +125,7 @@ def run_single(proctor, category_dir, filename, filepath):
         image = Image.open(filepath).convert("RGB")
         # ImageProctor 内部有调试 print，这里收束到报告，不污染终端。
         with contextlib.redirect_stdout(io.StringIO()):
-            texts = proctor.GetImageFaceAngleByImg(image)
+            texts = proctor.get_image_face_angle_by_img(image)
         actual = texts[0][0] if texts else ""
     except Exception as exc:
         actual = "异常: " + str(exc)
@@ -273,17 +282,20 @@ def write_reports(rows, summary, output_dir=REPORTS_DIR):
     return {"markdown": markdown_path, "csv": csv_path}
 
 
-def run_verification(samples_dir=SAMPLES_DIR, output_dir=REPORTS_DIR, limit=None):
-    images = collect_images(samples_dir)
+def run_verification(samples_dirs=None, output_dir=REPORTS_DIR, limit=None):
+    if samples_dirs is None:
+        samples_dirs = DEFAULT_SAMPLE_DIRS
+    images = collect_images(samples_dirs)
     if limit is not None:
         images = images[:limit]
 
     if not images:
-        raise FileNotFoundError(f"找不到样本图片：{samples_dir}")
+        raise FileNotFoundError(f"找不到样本图片：{samples_dirs}")
 
     print("=" * 80)
     print("ImageProctor 6 大类验证 v2")
-    print(f"样本目录：{samples_dir}")
+    for samples_dir in samples_dirs:
+        print(f"样本目录：{samples_dir}")
     print(f"样本数量：{len(images)} 张")
     print("=" * 80)
 
@@ -309,7 +321,12 @@ def run_verification(samples_dir=SAMPLES_DIR, output_dir=REPORTS_DIR, limit=None
 
 def parse_args():
     parser = argparse.ArgumentParser(description="验证 6 大类监考检测并生成报告")
-    parser.add_argument("--samples-dir", default=str(SAMPLES_DIR), help="样本目录")
+    parser.add_argument(
+        "--samples-dir",
+        nargs="*",
+        default=[str(p) for p in DEFAULT_SAMPLE_DIRS],
+        help="样本目录（可传多个，默认 samples_v2 + targeted_samples）",
+    )
     parser.add_argument("--output-dir", default=str(REPORTS_DIR), help="报告输出目录")
     parser.add_argument("--limit", type=int, default=None, help="仅验证前 N 张，用于快速冒烟")
     return parser.parse_args()

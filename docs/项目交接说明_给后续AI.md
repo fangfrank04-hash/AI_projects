@@ -1,7 +1,7 @@
 # AI 监考项目交接说明（给后续 AI / 接手开发者）
 
 > 目的：让接手这个项目的人（或 AI）快速搞清楚——**这是什么项目、代码怎么组织、有哪些脚本怎么用、当前到了什么状态、最近改了什么、还有哪些坑没填**。
-> 最近更新：2026-07-20。
+> 最近更新：2026-07-31（本版 1.1.0：准确率 83.61%、并发改造、专业化升级、仅分离版交付）。
 
 ---
 
@@ -55,13 +55,12 @@ uv run python scripts/probe_keypoints_v2.py
 ```
 uv run python scripts/verify_actions_v2.py
 ```
-- 数据源：`assets/test_images/samples_v2/`（当前 180 张，6 大类）
+- 数据源：默认扫 `samples_v2/` + `targeted_samples/` 两套共 **305 张**（6 大类）
 - **自动输出到文件**（不用再从控制台复制粘贴）：
   - `reports/detection_report.md`：总体通过率、各类通过率、P95 耗时、失败样本清单
   - `reports/detection_results.csv`：逐张明细
 - 文件名前缀 → 预期类别的映射在脚本顶部的 `CATEGORY_MAP`，改分类口径就改这里。
-
-> ⚠️ 已知小坑：`verify_actions_v2.py` 的 `SAMPLES_DIR` 目前硬编码 `samples_v2`（180 张），`assets/test_images/` 下还有 `targeted_samples` 等未纳入验证。要扩大验证集需改这里。
+- 可用 `--samples-dir` 参数指定其他目录。
 
 ### 其它脚本
 - `curate_targeted_samples.py`：筛选/整理拍摄的样本
@@ -72,22 +71,27 @@ Windows PowerShell 下脚本的中文输出会乱码（数字/英文正常）。
 
 ---
 
-## 四、当前状态（截至 2026-07-20）
+## 四、当前状态（截至 2026-07-30，版本 1.1.0）
 
-### 性能：✅ 达标（远超目标）
-- P95 响应从约 **597ms 降到约 156~174ms**（目标 <500ms），平均耗时 421ms → ~120ms。
-- 关键手段：**MediaPipe 模型只加载一次、跨请求复用**（原来每张图都重建 3 个模型）。见下节。
+### 性能：✅ 达标
+- 单张 P95 约 **250ms**（目标 <500ms）。
+- 关键手段：**MediaPipe 模型只加载一次、跨请求复用**（原来每张图都重建 3 个模型）。
 
-### 准确率：当前总体 **80%**（目标是从 73% 提上去，已达成）
-各类通过率（80% 版本）：
+### 并发：✅ 已改造（支持高并发同步调用）
+- 场景：80~120 台电脑每 5~10 秒截图，Java **同步调用**（组长 07-30 确认），峰值约 24 张/秒。
+- 手段：**模型池（进程内并行）+ uvicorn workers（多进程）+ 多机负载均衡**。压测：改造前 4.37 QPS → 后 9.6（单进程翻倍），workers=2 比 1 再提升 51%。
+- 详见 `deploy_split/高并发部署指南.md`。
+
+### 准确率：当前总体 **83.61%**（305 张验证集，从 73% 提升）
+各类通过率：
 | 类别 | 通过率 |
 |------|-------|
-| 正常考试 | 100% |
+| 正常考试 | 92.5% |
 | 视线偏移 | 90% |
-| 打电话 | 90% |
-| 多人 | 76.67% |
+| 打电话 | 94.29% |
+| 伸胳膊 | 85%（肘部特征改造后）|
+| 多人 | 72.86%（PoseLandmarker 兜底后）|
 | 离开座位 | 70% |
-| 伸胳膊 | 56.67% ⚠️ |
 
 ---
 
@@ -124,22 +128,51 @@ Windows PowerShell 下脚本的中文输出会乱码（数字/英文正常）。
 | `max_up_angle` | 6 | 上下角 > 该值 → 向上看 |
 | `max_down_angle` | -1 | 上下角 < 该值 → 向下看 |
 
+### 5. （2026-07-30）验证集扩容：180 → 305 张
+`verify_actions_v2.py` 默认扫 `samples_v2` + `targeted_samples` 两套数据源，`CATEGORY_MAP` 补了 `person_enter`/`person_pass_behind` 前缀。只改测试脚本，不影响业务代码/镜像。
+
+### 6. （2026-07-30）伸胳膊肘部特征改造：56.67% → 85%
+旧规则靠手腕（visibility 极低不可靠）。新增 `_is_elbow_stretch_arm`：用“肘齐肩/高于肩”（elbow_dy ≤ 0.5）判定（肘比腕可靠）。数据：伸胳膊 elbow_dy avg -0.05，其他类≥ 0.69，分界干净。零副作用（其他类不退步）。
+
+### 7. （2026-07-30）多人 PoseLandmarker 兜底：62.86% → 72.86%
+人脸检测数不出背影/侧脸的第二人。新增 MediaPipe Tasks **PoseLandmarker**（模型 `models/pose_landmarker_lite.task`）数“身体”兜底，置信度 0.2（`multi_person_pose_confidence`）；加**间距护栏** `_poses_are_separated`（两体肩中点水平距 ≥ 0.15 才算多人，排除单人转头被误拆）。模型用 `model_asset_buffer`（自读字节）加载——Windows 下传路径会报错。
+
+### 8. （2026-07-30）告警标签格式优化
+`turn_head` 标签→“视线偏移(考生转头)”，`turn_body` →“离开座位(考生转身)”，消除与大类名撞名的歧义（只改 action_label，不影响验证）。
+
+### 9. （2026-07-30）高并发模型池改造
+拆掉全局锁，新增 `ProctorPool`（`queue.Queue` 借还 N 个 `ImageProctor` 实例，真并行）；service 用 `run_in_threadpool` 把 CPU 密集的 analyze 丢线程池，不阻塞 async 事件循环。`PROCTOR_POOL_SIZE` 环境变量可调（默认 2）。
+
+### 10. （2026-07-30）PEP 8 全量重构 + 镜像交付
+- 907 处匈牙利命名→snake_case（m_fXxx/stXxx/in_stXxx），方法名 PascalCase→snake_case，Toolkit.py→toolkit.py。verify 逐类指标与改前一致。
+- Python 统一 3.12.9（与内网一致，`.python-version` pin）。
+- 交付模式：**仅分离版 `deploy_split/`**（环境镜像+挂载代码，改代码只拷 code/ 重启）；整包版 deploy/ 已于 07-31 退役删除（用户确认长期频繁改代码，分离版更合适）。
+
+### 11. （2026-07-31）专业化升级（对标 FastAPI 官方模板/uv 官方指南）
+- **代码**：删无用依赖 logic；main.py 加 lifespan（停机时释放模型池）；新增请求日志中间件 `app/core/middleware.py`；`/ping` 返回 `pool_ready`/`pool_size`（真健康检查）。
+- **镜像**（两个 Dockerfile 重写）：多阶段构建 + slim 基座（**tar 2.22GB→1.32GB，瘦 40%**）；钉死 uv 版本 0.10.12（不用 latest，保构建可复现）；`PYTHONUNBUFFERED=1`（日志实时）；`UV_COMPILE_BYTECODE=1`（启动提速）；**非 root 运行**（appuser，安全基线）。
+- 容器实测：healthy、appuser、新 ping、多人/正常识别全对；tar load 校验通过。
+
 ---
 
 ## 六、已知问题 / 下一步（重要，别踩坑）
 
-### 伸胳膊类精度是硬骨头（56.67%，别用调阈值硬刚）
-根因诊断结论：**MediaPipe 对伸直的手臂，手腕关键点的 visibility 天生极低（0.06~0.30）**。做过的 4 组实验证明这是个**精度/召回的死结**：
-- 只要放宽阈值把伸胳膊逼到 100%，正常/离座/视线偏移就被"幻觉手腕"大量误报，总体反而掉到 63~70%。
-- 实测：visibility 门槛 0.4→0.25→0.05，伸胳膊 56%→90%→100%，但总体 80%→75%→63%。
+### 伸胳膊早期是硬骨头（已部分解决：56.67% → 85%）
+旧结论：MediaPipe 对伸直手臂的**手腕** visibility 极低（0.06~0.30），靠手腕调阈值是死结。
+**07-30 突破口**：改用更可靠的**肘部**特征（`_is_elbow_stretch_arm`，“肘齐肩”），从 56.67% 提到 85% 且零副作用。剩下的 15% 是肘也被遮挡的极端样本，需手部检测模型才能再进一步。
 
-**结论**：这不是调阈值能解开的，需要**更好的特征**（比如引入手部检测模型、或对低可见度关键点做专门处理），建议作为**专门的下一轮迭代**，而不是继续在阈值上打转。当前 80% 是这套特征体系下的最优平衡点。
+### 剩余提升空间（下一轮可做）
+- **多人 72.86%**：背影/半入镜仍有漏，要再提升需人体检测（YOLO/更强模型），但会增加镜像体积和延迟，需权衡。
+- **离开座位 70%**：转身/转头的边界案例。
 
 ### 阈值都在 `image_proctor.__init__` 里
-姿势类阈值（`m_fPhone*`、`m_fHorizontalStretch*`、`m_fTurnBody*` 等）都是标定值，改前先跑 `probe_keypoints_v2.py` 看数据、改后必跑 `verify_actions_v2.py` **确认各类没连带退步**（这个习惯多次帮我们及时发现回退）。
+姿势类阈值（`phone_*`、`horizontal_stretch_*`、`elbow_stretch_*`、`turn_body_*` 等）都是标定值，改前先跑 `probe_keypoints_v2.py` 看数据、改后必跑 `verify_actions_v2.py` **确认各类没连带退步**（这个习惯多次帮我们及时发现回退）。
 
-### 验证集偏小
-只有 180 张（`samples_v2`）。要更可信的准确率，需扩充样本并修 `verify_actions_v2.py` 的 `SAMPLES_DIR`。
+> 2026-07-30：全项目已完成匈牙利命名→PEP 8 重构（m_fXxx/stXxx/in_stXxx 全部改为 snake_case，
+> 方法名 PascalCase→snake_case，Toolkit.py→toolkit.py），907 处改名后 verify 逐类指标与改前完全一致。
+
+### 验证集已扩到 305 张
+已含 `samples_v2`(180) + `targeted_samples`(125)。要更可信可继续拍片扩充，`verify_actions_v2.py` 支持 `--samples-dir` 多目录。
 
 ---
 
@@ -149,8 +182,11 @@ Windows PowerShell 下脚本的中文输出会乱码（数字/英文正常）。
 # 装依赖
 uv sync
 
-# 起服务（开发）
+# 起服务（开发，单进程）
 uv run uvicorn app.main:app --reload
+
+# 起服务（接近生产，多进程）
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 
 # lint
 uv run ruff check app tests
@@ -171,5 +207,6 @@ uv run python scripts/probe_keypoints_v2.py
 
 1. **改 `image_proctor.py` 的阈值后，必跑 `verify_actions_v2.py` 并逐类核对**，别只看总体通过率。
 2. **性能已优化，别退回"每次请求 new 一个 ImageProctor"或"每张图重建模型"** —— 那会让 P95 回到近 1 秒。
-3. 共享单例 + 锁的设计要保住：任何新的"按请求变化的状态"（如面部角度参数）都应在锁内临时套用、用完复位，不要在共享实例上留残留。
-4. 用户是 Python 后台新手，交流用**中文**、讲清楚"为什么"，别堆术语。
+3. **并发靠 `ProctorPool` 模型池 + `run_in_threadpool`**：任何新的"按请求变化的状态"（如面部角度参数）都应在单次 analyze 内临时套用、用完复位，不要在实例上留残留。
+4. **高并发靠多进程（uvicorn --workers）+ 多机**，不是无限加大模型池（单进程受 CPU 核数限制有天花板）。
+5. 用户是 Python 后台新手，交流用**中文**、讲清楚"为什么"、别堆术语。

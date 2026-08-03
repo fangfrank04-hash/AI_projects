@@ -1,0 +1,44 @@
+# .dockerignore：构建镜像时排除这些文件/目录，让镜像更小、构建更快。
+# 原则：只保留“服务运行时真正需要的东西”，测试样本/文档/脚本/开发缓存都不进镜像。
+
+# ===== Python 虚拟环境与缓存（体积大，且镜像里会用 uv 重新装）=====
+.venv/
+**/__pycache__/
+*.pyc
+
+# ===== 版本控制与开发工具 =====
+.git/
+.gitignore
+.agents/
+.claude/
+.workbuddy/
+.superpowers/
+.learnings/
+
+# 离线部署交付物不进入整包镜像的构建上下文
+deploy_split/
+
+# ===== 测试样本图（运行时用不到，只有 person2.jpg 被 /test 用到）=====
+assets/test_images/samples/
+assets/test_images/samples_annotated/
+assets/test_images/samples_v2/
+assets/test_images/samples_v2_annotated/
+assets/test_images/targeted_samples/
+assets/test_images/targeted_samples_clean/
+assets/test_images/ai_generated/
+
+# ===== 未使用的模型权重（YOLO 依赖已卸载，运行时不加载）=====
+models/weights/
+
+# ===== 报告、文档、脚本、测试（都是本地开发用，不进生产镜像）=====
+reports/
+docs/
+scripts/
+tests/
+*.md
+threshold_calibration_report*.md
+
+# ===== 其它 =====
+.env
+Dockerfile
+.dockerignore

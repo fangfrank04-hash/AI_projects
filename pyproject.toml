@@ -5,7 +5,6 @@ description = "AI 智能监考服务（FastAPI + MediaPipe）"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.138.0",
-    "logic>=0.2.3",
     "mediapipe==0.10.20",
     "numpy>=1.26",
     "opencv-python==4.8.1.78",
@@ -24,12 +23,10 @@ dev = [
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-# 图片监考核心逻辑仍保留匈牙利命名，命名规范整改分批进行，先只跑基础规则
 extend-exclude = [".venv", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
-# 匈牙利命名的历史文件暂不强制改名，避免一次大改引入回归
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
@@ -37,3 +34,8 @@ ignore = ["E501"]
 "app/ml/back_camera.py" = ["F401", "E402"]
 # 测试通过 sys.path.insert 注入根目录后再 import，属合理模式
 "tests/test_accuracy.py" = ["E402"]
+
+[tool.pytest.ini_options]
+# 本项目无 [build-system]（不当包安装），靠这一行把项目根目录加入导入路径，
+# 让 tests 里的 `from app...` 能导入（不依赖 venv 里是否装了项目）。
+pythonpath = ["."]

@@ -127,24 +127,24 @@ def compute_metrics(landmarks):
 
 def collect_images():
     """递归收集所有图片，返回 [(大类, 子目录, 文件名, 完整路径), ...]"""
-    listImages = []
+    image_list = []
     if not os.path.exists(SAMPLES_DIR):
         print(f"错误：找不到样本目录 {SAMPLES_DIR}")
-        return listImages
+        return image_list
 
-    for strCategory in sorted(os.listdir(SAMPLES_DIR)):
-        strCatDir = os.path.join(SAMPLES_DIR, strCategory)
-        if not os.path.isdir(strCatDir):
+    for category in sorted(os.listdir(SAMPLES_DIR)):
+        cat_dir = os.path.join(SAMPLES_DIR, category)
+        if not os.path.isdir(cat_dir):
             continue
-        for strFile in sorted(os.listdir(strCatDir)):
-            if strFile.lower().endswith(('.jpg', '.jpeg', '.png')):
-                listImages.append((strCategory, strCatDir, strFile, os.path.join(strCatDir, strFile)))
-    return listImages
+        for file_name in sorted(os.listdir(cat_dir)):
+            if file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                image_list.append((category, cat_dir, file_name, os.path.join(cat_dir, file_name)))
+    return image_list
 
 
 def main():
-    listImages = collect_images()
-    if not listImages:
+    image_list = collect_images()
+    if not image_list:
         print("没有找到图片")
         return
 
@@ -156,7 +156,7 @@ def main():
     print(f"关键点探测 v2")
     print(f"样本目录：{SAMPLES_DIR}")
     print(f"标注目录：{ANNOTATED_DIR}")
-    print(f"共 {len(listImages)} 张图片")
+    print(f"共 {len(image_list)} 张图片")
     print("=" * 70)
 
     # 初始化 Pose
@@ -169,16 +169,16 @@ def main():
     )
 
     # 按大类收集结果
-    dictCatResults = defaultdict(list)  # {大类: [(文件名, detected, metrics)]}
+    cat_results = defaultdict(list)  # {大类: [(文件名, detected, metrics)]}
 
-    for i, (cat, cat_dir, filename, filepath) in enumerate(listImages):
+    for i, (cat, cat_dir, filename, filepath) in enumerate(image_list):
         cat_cn = CATEGORY_NAMES.get(cat, cat)
-        print(f"\n[{i+1}/{len(listImages)}] [{cat_cn}] {filename}")
+        print(f"\n[{i+1}/{len(image_list)}] [{cat_cn}] {filename}")
 
         image = cv2.imread(filepath)
         if image is None:
             print(f"  读取失败")
-            dictCatResults[cat].append((filename, False, None))
+            cat_results[cat].append((filename, False, None))
             continue
 
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -186,13 +186,13 @@ def main():
 
         if results.pose_landmarks is None:
             print(f"  未检测到人体")
-            dictCatResults[cat].append((filename, False, None))
+            cat_results[cat].append((filename, False, None))
             # 保存原图
             cv2.imwrite(os.path.join(ANNOTATED_DIR, cat, filename), image)
             continue
 
         metrics = compute_metrics(results.pose_landmarks.landmark)
-        dictCatResults[cat].append((filename, True, metrics))
+        cat_results[cat].append((filename, True, metrics))
 
         # 打印关键指标（精简）
         print(f"  shoulder_dist={metrics['shoulder_dist']:.3f}  "
@@ -230,25 +230,25 @@ def main():
     print()
     print("-" * 110)
 
-    for cat, results in sorted(dictCatResults.items()):
+    for cat, results in sorted(cat_results.items()):
         cat_cn = CATEGORY_NAMES.get(cat, cat)
-        iTotal = len(results)
-        iDetected = sum(1 for _, d, _ in results if d)
-        listMetrics = [m for _, d, m in results if d and m is not None]
+        total = len(results)
+        detected = sum(1 for _, d, _ in results if d)
+        metric_list = [m for _, d, m in results if d and m is not None]
 
-        print(f"{cat_cn:<10} {iTotal:>5} {iDetected:>5} | ", end="")
+        print(f"{cat_cn:<10} {total:>5} {detected:>5} | ", end="")
 
         for key, _ in KEY_METRICS:
-            if not listMetrics:
+            if not metric_list:
                 print(f"{'---':>12}", end="")
             else:
-                values = [m[key] for m in listMetrics if key in m]
+                values = [m[key] for m in metric_list if key in m]
                 if not values:
                     print(f"{'---':>12}", end="")
                 else:
-                    fMin = min(values)
-                    fMax = max(values)
-                    print(f"{fMin:.3f}~{fMax:.3f}", end="")
+                    min_val = min(values)
+                    max_val = max(values)
+                    print(f"{min_val:.3f}~{max_val:.3f}", end="")
         print()
 
     print("-" * 110)
@@ -258,21 +258,21 @@ def main():
     print("阈值标定参考（各指标区间）")
     print("=" * 100)
 
-    for cat, results in sorted(dictCatResults.items()):
+    for cat, results in sorted(cat_results.items()):
         cat_cn = CATEGORY_NAMES.get(cat, cat)
-        listMetrics = [m for _, d, m in results if d and m is not None]
-        if not listMetrics:
+        metric_list = [m for _, d, m in results if d and m is not None]
+        if not metric_list:
             print(f"\n【{cat_cn}】无检测数据")
             continue
 
-        print(f"\n【{cat_cn}】检测到 {len(listMetrics)}/{len(results)} 张")
+        print(f"\n【{cat_cn}】检测到 {len(metric_list)}/{len(results)} 张")
         for key, label in KEY_METRICS:
-            values = [m[key] for m in listMetrics if key in m]
+            values = [m[key] for m in metric_list if key in m]
             if values:
-                fMin = min(values)
-                fMax = max(values)
-                fAvg = sum(values) / len(values)
-                print(f"  {label:<14} min={fMin:.4f}  max={fMax:.4f}  avg={fAvg:.4f}")
+                min_val = min(values)
+                max_val = max(values)
+                avg_val = sum(values) / len(values)
+                print(f"  {label:<14} min={min_val:.4f}  max={max_val:.4f}  avg={avg_val:.4f}")
 
     print("\n" + "=" * 100)
     print(f"标注图保存在：{ANNOTATED_DIR}")

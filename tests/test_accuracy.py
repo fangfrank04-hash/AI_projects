@@ -59,7 +59,7 @@ def run_single(image_path):
     try:
         pil_img = Image.open(image_path).convert("RGB")
         proctor = ImageProctor()
-        proctor.GetImageFaceAngleByImg(pil_img)
+        proctor.get_image_face_angle_by_img(pil_img)
     except Exception as e:
         sys.stdout = old_stdout
         return (None, None, None, f"异常: {e}")
@@ -75,10 +75,10 @@ def run_single(image_path):
         y_angle = float(match.group(2))
         direction = int(match.group(3))
 
-    # 从 m_listText 获取最终判定
+    # 从 texts 获取最终判定
     result_text = "无输出"
-    if proctor.m_listText:
-        result_text = proctor.m_listText[0][0] if proctor.m_listText[0] else "无输出"
+    if proctor.texts:
+        result_text = proctor.texts[0][0] if proctor.texts[0] else "无输出"
 
     return (x_angle, y_angle, direction, result_text)
 
