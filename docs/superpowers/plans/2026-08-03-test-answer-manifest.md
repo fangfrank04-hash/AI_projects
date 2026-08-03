@@ -12,7 +12,7 @@
 
 ## File Map
 
-- Create `scripts/test_answer_manifest.py`: answer-row type, CSV reader, validation, allowed categories.
+- Create `scripts/answer_manifest.py`: answer-row type, CSV reader, validation, allowed categories.
 - Create `scripts/build_test_answers.py`: deterministic initial construction from the two original photo sets.
 - Create `assets/test_images/test_answers.csv`: committed, human-readable 305-row answer table.
 - Create `tests/test_answer_manifest.py`: manifest validation and 305-image inventory tests.
@@ -25,7 +25,7 @@
 ### Task 1: Add Manifest Loading And Validation
 
 **Files:**
-- Create: `scripts/test_answer_manifest.py`
+- Create: `scripts/answer_manifest.py`
 - Create: `tests/test_answer_manifest.py`
 
 - [ ] **Step 1: Write failing validation tests**
@@ -59,7 +59,7 @@ def test_loads_one_valid_answer_row(self):
 
 Run: `.venv\Scripts\python.exe -m unittest tests.test_answer_manifest -v`
 
-Expected: import failure for `scripts.test_answer_manifest`.
+Expected: import failure for `scripts.answer_manifest`.
 
 - [ ] **Step 3: Implement the focused manifest module**
 
@@ -98,7 +98,7 @@ Expected: all manifest validation tests pass.
 Run:
 
 ```powershell
-git add scripts/test_answer_manifest.py tests/test_answer_manifest.py
+git add scripts/answer_manifest.py tests/test_answer_manifest.py
 git commit -m "test: add image answer manifest validation"
 ```
 
@@ -368,7 +368,7 @@ Run:
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -q
-.venv\Scripts\ruff.exe check scripts/test_answer_manifest.py scripts/build_test_answers.py scripts/verify_actions_v2.py scripts/curate_targeted_samples.py tests/test_answer_manifest.py tests/test_verify_actions_v2.py tests/test_curate_targeted_samples.py
+.venv\Scripts\ruff.exe check scripts/answer_manifest.py scripts/build_test_answers.py scripts/verify_actions_v2.py scripts/curate_targeted_samples.py tests/test_answer_manifest.py tests/test_verify_actions_v2.py tests/test_curate_targeted_samples.py
 ```
 
 Expected: test suite and lint both exit successfully. Existing unrelated working-tree changes must remain untouched.

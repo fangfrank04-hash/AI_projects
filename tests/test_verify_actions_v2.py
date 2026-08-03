@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from PIL import Image
 
 from scripts import verify_actions_v2 as report
-from scripts.test_answer_manifest import AnswerRow
+from scripts.answer_manifest import AnswerRow
 
 
 class FakeProctor:

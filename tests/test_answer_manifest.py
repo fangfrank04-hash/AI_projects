@@ -4,7 +4,7 @@ import unittest
 from collections import Counter
 from pathlib import Path
 
-from scripts.test_answer_manifest import load_answer_manifest
+from scripts.answer_manifest import load_answer_manifest
 
 FIELDS = [
     "image_path",

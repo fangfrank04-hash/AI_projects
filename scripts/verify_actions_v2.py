@@ -22,7 +22,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.ml.image_proctor import ImageProctor  # noqa: E402
-from scripts.test_answer_manifest import AnswerRow, load_answer_manifest  # noqa: E402
+from scripts.answer_manifest import AnswerRow, load_answer_manifest  # noqa: E402
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 ANSWERS_PATH = ROOT_DIR / "assets" / "test_images" / "test_answers.csv"
