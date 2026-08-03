@@ -10,9 +10,7 @@
 """
 
 import argparse
-import contextlib
 import csv
-import io
 import os
 import sys
 import time
@@ -23,122 +21,79 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.ml.image_proctor import ImageProctor
+from app.ml.image_proctor import ImageProctor  # noqa: E402
+from scripts.answer_manifest import AnswerRow, load_answer_manifest  # noqa: E402
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-# 默认扫两套数据源：samples_v2（180 张，7/3 拍）+ targeted_samples（125 张，7/8 和 7/17 拍）
-DEFAULT_SAMPLE_DIRS = [
-    ROOT_DIR / "assets" / "test_images" / "samples_v2",
-    ROOT_DIR / "assets" / "test_images" / "targeted_samples",
-]
+ANSWERS_PATH = ROOT_DIR / "assets" / "test_images" / "test_answers.csv"
 REPORTS_DIR = ROOT_DIR / "reports"
 
-# 文件名前缀 -> (大类, 预期关键词, 预期描述)
-CATEGORY_MAP = {
-    # 正常考试
-    "normal_front": ("正常考试", "正常", "正常考试"),
-    "normal_side": ("正常考试", "正常", "正常考试"),
-    "normal_writing": ("视线偏移", None, "视线偏移（低头写字归视线偏移）"),
-
-    # 视线偏移
-    "face_hidden": ("视线偏移", "视线偏移", "视线偏移"),
-    # 大幅转头归为视线偏移（人未离开、侧脸对镜头）
-    "head_turn_large": ("视线偏移", "视线偏移", "视线偏移（大幅转头）"),
-    "phone_look_down": ("视线偏移", None, "视线偏移（低头看手机）"),
-
-    # 离开座位
-    "person_gone": ("离开座位", "离开座位", "离开座位（人消失）"),
-    "turn_body_left_90": ("离开座位", "转身", "离开座位（转身90）"),
-    "turn_body_right_90": ("离开座位", "转身", "离开座位（转身90）"),
-    "turn_head": ("离开座位", "转头", "离开座位（转头）"),
-    "stand_up": ("离开座位", "离开座位", "离开座位（站立→人消失）"),
-
-    # 多人
-    "two_persons": ("多人", "多人", "多人"),
-    "person_entering": ("多人", "多人", "多人"),
-    "two_persons_talking": ("多人", "多人", "多人"),
-    # targeted_samples 新前缀：从边缘进入 / 背后路过，都归多人
-    "person_enter": ("多人", "多人", "多人（边缘进入）"),
-    "person_pass_behind": ("多人", "多人", "多人（背后路过）"),
-
-    # 打电话
-    "phone_left": ("打电话", "电话", "打电话"),
-    "phone_right": ("打电话", "电话", "打电话"),
-
-    # 伸胳膊
-    "stretch_left": ("伸胳膊", "伸展", "伸胳膊"),
-    "stretch_right": ("伸胳膊", "伸展", "伸胳膊"),
-    "stretch_both": ("伸胳膊", "伸展", "伸胳膊"),
+ACTION_CATEGORY_MAP = {
+    "normal": "正常考试",
+    "gaze_away": "视线偏移",
+    "turn_head": "视线偏移",
+    "leave_seat": "离开座位",
+    "turn_body": "离开座位",
+    "multi_person": "多人",
+    "phone_call": "打电话",
+    "stretch_arm": "伸胳膊",
 }
 
 CSV_FIELDS = [
-    "category_dir",
+    "source_set",
+    "split",
+    "scenario",
+    "image_path",
     "filename",
     "expected_category",
-    "expected_desc",
-    "expected_keyword",
+    "note",
+    "actual_action_type",
+    "actual_category",
     "actual",
     "passed",
     "elapsed_ms",
 ]
 
 
-def collect_images(samples_dirs=None):
-    """收集样本图片（支持多个数据源目录），返回 (目录类别, 文件名, 文件路径) 列表。"""
-    if samples_dirs is None:
-        samples_dirs = DEFAULT_SAMPLE_DIRS
-    images = []
-    for samples_dir in samples_dirs:
-        samples_dir = Path(samples_dir)
-        if not samples_dir.exists():
-            continue
-        for category_dir in sorted(samples_dir.iterdir()):
-            if not category_dir.is_dir():
-                continue
-            for image_path in sorted(category_dir.iterdir()):
-                if image_path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
-                    images.append((category_dir.name, image_path.name, image_path))
-    return images
+def collect_images(answers_path=ANSWERS_PATH, root_dir=ROOT_DIR):
+    """读取标准答案表，只返回明确计入主测试的照片。"""
+    rows = load_answer_manifest(Path(answers_path), Path(root_dir))
+    return [row for row in rows if row.include_in_main]
 
 
-def get_expected(filename):
-    """根据文件名前缀返回 (大类, 关键词, 描述)。"""
-    for prefix, expected in CATEGORY_MAP.items():
-        if filename.startswith(prefix):
-            return expected
-    return "未知", None, "未匹配"
+def is_passed(expected_category, actual_category):
+    """严格按业务大类判断，不接受其他类别作为兼容结果。"""
+    return expected_category == actual_category
 
 
-def is_passed(expected_keyword, actual):
-    """判断一次检测是否符合预期。"""
-    if expected_keyword is None:
-        # normal_writing 和 phone_look_down 当前允许正常/视线偏移/转头。
-        return ("正常" in actual) or ("视线偏移" in actual) or ("转头" in actual)
-    return expected_keyword in actual
-
-
-def run_single(proctor, category_dir, filename, filepath):
+def run_single(proctor, answer: AnswerRow, root_dir=ROOT_DIR):
     """执行单张图片检测，返回结构化结果。"""
-    expected_category, expected_keyword, expected_desc = get_expected(filename)
+    filepath = Path(root_dir) / answer.image_path
     start = time.time()
     try:
-        image = Image.open(filepath).convert("RGB")
-        # ImageProctor 内部有调试 print，这里收束到报告，不污染终端。
-        with contextlib.redirect_stdout(io.StringIO()):
-            texts = proctor.get_image_face_angle_by_img(image)
-        actual = texts[0][0] if texts else ""
+        with Image.open(filepath) as image:
+            result = proctor.analyze(image.convert("RGB"))
+        actual_action_type = getattr(result.action_type, "value", result.action_type)
+        actual_category = ACTION_CATEGORY_MAP.get(actual_action_type, "未知")
+        actual = result.action_label
     except Exception as exc:
+        actual_action_type = "error"
+        actual_category = "异常"
         actual = "异常: " + str(exc)
 
     elapsed_ms = round((time.time() - start) * 1000, 2)
     return {
-        "category_dir": category_dir,
-        "filename": filename,
-        "expected_category": expected_category,
-        "expected_desc": expected_desc,
-        "expected_keyword": expected_keyword or "",
+        "source_set": answer.source_set,
+        "split": answer.split,
+        "scenario": answer.scenario,
+        "image_path": answer.image_path,
+        "filename": filepath.name,
+        "expected_category": answer.expected_category,
+        "note": answer.note,
+        "actual_action_type": actual_action_type,
+        "actual_category": actual_category,
         "actual": actual,
-        "passed": is_passed(expected_keyword, actual),
+        "passed": is_passed(answer.expected_category, actual_category),
         "elapsed_ms": elapsed_ms,
     }
 
@@ -188,7 +143,18 @@ def build_summary(rows):
     }
     total.update(_latency_stats([float(row["elapsed_ms"]) for row in rows]))
 
-    return {"total": total, "by_category": by_category}
+    normal_rows = [row for row in rows if row["expected_category"] == "正常考试"]
+    normal_false_positives = sum(1 for row in normal_rows if not row["passed"])
+
+    return {
+        "total": total,
+        "by_category": by_category,
+        "normal_false_positives": {
+            "count": normal_false_positives,
+            "total": len(normal_rows),
+            "rate": _rate(normal_false_positives, len(normal_rows)),
+        },
+    }
 
 
 def write_reports(rows, summary, output_dir=REPORTS_DIR):
@@ -211,7 +177,11 @@ def write_reports(rows, summary, output_dir=REPORTS_DIR):
         "# AI 监考检测率报告",
         "",
         f"- 生成时间：{generated_at}",
+        f"- 标准答案表：`{ANSWERS_PATH.relative_to(ROOT_DIR).as_posix()}`",
         f"- 样本总数：{summary['total']['count']} 张",
+        "- 正常考试误报：{count}/{total}（{rate:.2f}%）".format(
+            **summary["normal_false_positives"]
+        ),
         f"- 总体通过率：{summary['total']['pass_rate']:.2f}%",
         f"- 平均耗时：{summary['total']['avg_elapsed_ms']:.2f} ms",
         f"- P95 耗时：{summary['total']['p95_elapsed_ms']:.2f} ms",
@@ -249,17 +219,18 @@ def write_reports(rows, summary, output_dir=REPORTS_DIR):
     if failed_rows:
         lines.extend(
             [
-                "| 文件 | 预期大类 | 预期描述 | 实际结果 | 耗时 |",
-                "|---|---|---|---|---:|",
+                "| 文件 | 预期大类 | 预期描述 | 实际大类 | 实际结果 | 耗时 |",
+                "|---|---|---|---|---|---:|",
             ]
         )
         for row in failed_rows:
             lines.append(
-                "| {filename} | {expected_category} | {expected_desc} | {actual} | "
+                "| {filename} | {expected_category} | {note} | {actual_category} | {actual} | "
                 "{elapsed_ms:.2f} ms |".format(
                     filename=row["filename"],
                     expected_category=row["expected_category"],
-                    expected_desc=row["expected_desc"],
+                    note=row.get("note") or row["expected_category"],
+                    actual_category=row.get("actual_category", "未记录"),
                     actual=row["actual"].replace("|", "/"),
                     elapsed_ms=float(row["elapsed_ms"]),
                 )
@@ -274,7 +245,8 @@ def write_reports(rows, summary, output_dir=REPORTS_DIR):
             "",
             "1. 优先查看失败样本清单，按大类定位误判/漏判模式。",
             "2. 每次调整阈值或规则后重新运行本脚本，比较 CSV 明细和分类通过率。",
-            "3. 当前报告只代表本地样本集表现，真实考场上线前仍需补充更多光线、角度、遮挡和多人半入镜样本。",
+            "3. tune/eval 来自同批连续拍摄，只能说明同场景稳定性，不能代表陌生考场泛化能力。",
+            "4. 当前报告只代表本地样本集表现，真实考场上线前仍需补充更多光线、角度、遮挡和多人半入镜样本。",
         ]
     )
 
@@ -282,33 +254,32 @@ def write_reports(rows, summary, output_dir=REPORTS_DIR):
     return {"markdown": markdown_path, "csv": csv_path}
 
 
-def run_verification(samples_dirs=None, output_dir=REPORTS_DIR, limit=None):
-    if samples_dirs is None:
-        samples_dirs = DEFAULT_SAMPLE_DIRS
-    images = collect_images(samples_dirs)
+def run_verification(
+    answers_path=ANSWERS_PATH, output_dir=REPORTS_DIR, limit=None, root_dir=ROOT_DIR
+):
+    images = collect_images(answers_path, root_dir)
     if limit is not None:
         images = images[:limit]
 
     if not images:
-        raise FileNotFoundError(f"找不到样本图片：{samples_dirs}")
+        raise FileNotFoundError(f"标准答案表中没有主测试照片：{answers_path}")
 
     print("=" * 80)
     print("ImageProctor 6 大类验证 v2")
-    for samples_dir in samples_dirs:
-        print(f"样本目录：{samples_dir}")
+    print(f"标准答案表：{answers_path}")
     print(f"样本数量：{len(images)} 张")
     print("=" * 80)
 
     proctor = ImageProctor()
     rows = []
-    for index, (category_dir, filename, filepath) in enumerate(images, start=1):
-        row = run_single(proctor, category_dir, filename, filepath)
+    for index, answer in enumerate(images, start=1):
+        row = run_single(proctor, answer, root_dir)
         rows.append(row)
         mark = "PASS" if row["passed"] else "FAIL"
         if not row["passed"]:
             print(
-                f"[{mark}] {index}/{len(images)} {filename} "
-                f"预期={row['expected_desc']} 实际={row['actual']} "
+                f"[{mark}] {index}/{len(images)} {row['filename']} "
+                f"预期={row['expected_category']} 实际={row['actual']} "
                 f"耗时={row['elapsed_ms']:.0f}ms"
             )
         elif index % 20 == 0 or index == len(images):
@@ -322,10 +293,9 @@ def run_verification(samples_dirs=None, output_dir=REPORTS_DIR, limit=None):
 def parse_args():
     parser = argparse.ArgumentParser(description="验证 6 大类监考检测并生成报告")
     parser.add_argument(
-        "--samples-dir",
-        nargs="*",
-        default=[str(p) for p in DEFAULT_SAMPLE_DIRS],
-        help="样本目录（可传多个，默认 samples_v2 + targeted_samples）",
+        "--answers",
+        default=str(ANSWERS_PATH),
+        help="标准答案 CSV 路径",
     )
     parser.add_argument("--output-dir", default=str(REPORTS_DIR), help="报告输出目录")
     parser.add_argument("--limit", type=int, default=None, help="仅验证前 N 张，用于快速冒烟")
@@ -334,7 +304,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    rows, summary, paths = run_verification(args.samples_dir, args.output_dir, args.limit)
+    rows, summary, paths = run_verification(args.answers, args.output_dir, args.limit)
 
     print("\n" + "=" * 80)
     print("验证汇总")
