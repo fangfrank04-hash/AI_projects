@@ -51,6 +51,7 @@ _temp_*/
 # Local agent working files
 .superpowers/
 .learnings/
+.worktrees/
 
 # Generated deployment artifacts
 deploy_split/*.tar
