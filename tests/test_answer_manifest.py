@@ -1,6 +1,7 @@
 import csv
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 from scripts.test_answer_manifest import load_answer_manifest
@@ -14,6 +15,17 @@ FIELDS = [
     "include_in_main",
     "note",
 ]
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+ANSWERS_PATH = ROOT_DIR / "assets" / "test_images" / "test_answers.csv"
+EXPECTED_COUNTS = {
+    "正常考试": 37,
+    "视线偏移": 68,
+    "离开座位": 15,
+    "多人": 70,
+    "打电话": 35,
+    "伸胳膊": 80,
+}
 
 
 class AnswerManifestTest(unittest.TestCase):
@@ -105,6 +117,37 @@ class AnswerManifestTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "缺少字段.*note"):
             load_answer_manifest(self.csv_path, self.root)
+
+
+class ProjectAnswerInventoryTest(unittest.TestCase):
+    def test_main_manifest_has_exact_business_category_counts(self):
+        rows = load_answer_manifest(ANSWERS_PATH, ROOT_DIR)
+        main_rows = [row for row in rows if row.include_in_main]
+
+        self.assertEqual(305, len(main_rows))
+        self.assertEqual(
+            EXPECTED_COUNTS,
+            dict(Counter(row.expected_category for row in main_rows)),
+        )
+        self.assertFalse(any("annotated" in row.image_path for row in main_rows))
+        self.assertFalse(
+            any("targeted_samples_clean" in row.image_path for row in main_rows)
+        )
+
+    def test_confirmed_seated_turns_are_gaze_away_and_included(self):
+        rows = load_answer_manifest(ANSWERS_PATH, ROOT_DIR)
+        by_name = {Path(row.image_path).name: row for row in rows}
+        filenames = [
+            "normal_side_guard_002_20260708_154603.jpg",
+            "normal_side_guard_003_20260708_154605.jpg",
+            "normal_side_guard_004_20260708_154611.jpg",
+        ]
+
+        for filename in filenames:
+            row = by_name[filename]
+            self.assertEqual("视线偏移", row.expected_category)
+            self.assertEqual("坐着转身", row.note)
+            self.assertTrue(row.include_in_main)
 
 
 if __name__ == "__main__":
