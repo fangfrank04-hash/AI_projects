@@ -14,9 +14,8 @@ from __future__ import annotations
 import argparse
 import csv
 import shutil
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
-
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_SOURCE_DIR = ROOT_DIR / "assets" / "test_images" / "targeted_samples"
@@ -28,9 +27,6 @@ MANUAL_REJECTS = {
     ("stretch_left_horizontal", "2"),
     ("stretch_left_horizontal", "3"),
     ("stretch_both_mixed", "1"),
-    ("normal_side_guard", "2"),
-    ("normal_side_guard", "3"),
-    ("normal_side_guard", "4"),
 }
 
 

@@ -4,14 +4,15 @@ from scripts import curate_targeted_samples as curate
 
 
 class CurateTargetedSamplesTest(unittest.TestCase):
-    def test_rejects_known_mislabeled_samples(self):
-        row = {
-            "code": "normal_side_guard",
-            "shot_index": "2",
-            "filename": "normal_side_guard_002_20260708_154603.jpg",
-        }
+    def test_keeps_confirmed_seated_turn_samples(self):
+        for shot_index in ("2", "3", "4"):
+            row = {
+                "code": "normal_side_guard",
+                "shot_index": shot_index,
+                "filename": f"normal_side_guard_00{shot_index}.jpg",
+            }
 
-        self.assertEqual("manual_reject", curate.classify_row(row))
+            self.assertEqual("keep", curate.classify_row(row))
 
     def test_keeps_latest_duplicate_shot(self):
         rows = [
