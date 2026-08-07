@@ -1,0 +1,8 @@
+﻿source_set,split,scenario,image_path,filename,expected_category,note,actual_action_type,actual_category,actual,passed,elapsed_ms
+fixed_rear_45deg,field_check,normal,assets/test_images/fixed_rear_45deg/images/rear45_001_normal.jpg,rear45_001_normal.jpg,正常考试,正常考试,turn_body,离开座位,离开座位(考生转身),False,209.71
+fixed_rear_45deg,field_check,turn_head,assets/test_images/fixed_rear_45deg/images/rear45_002_turn_head.jpg,rear45_002_turn_head.jpg,视线偏移,转头,turn_body,离开座位,离开座位(考生转身),False,180.03
+fixed_rear_45deg,field_check,turn_head_body,assets/test_images/fixed_rear_45deg/images/rear45_003_turn_head_body.jpg,rear45_003_turn_head_body.jpg,视线偏移,转头加转身,turn_body,离开座位,离开座位(考生转身),False,220.55
+fixed_rear_45deg,field_check,stand_up,assets/test_images/fixed_rear_45deg/images/rear45_004_stand_up.jpg,rear45_004_stand_up.jpg,离开座位,起身站起来,turn_body,离开座位,离开座位(考生转身),True,237.92
+fixed_rear_45deg,field_check,stretch_arm,assets/test_images/fixed_rear_45deg/images/rear45_005_stretch_arm.jpg,rear45_005_stretch_arm.jpg,伸胳膊,伸展胳膊,stretch_arm,伸胳膊,考生伸展胳膊,True,260.37
+fixed_rear_45deg,field_check,stretch_arm,assets/test_images/fixed_rear_45deg/images/rear45_006_stretch_arm.jpg,rear45_006_stretch_arm.jpg,伸胳膊,伸展胳膊,stretch_arm,伸胳膊,考生伸展胳膊,True,285.9
+fixed_rear_45deg,field_check,normal,assets/test_images/fixed_rear_45deg/images/rear45_007_normal.jpg,rear45_007_normal.jpg,正常考试,正常考试,stretch_arm,伸胳膊,考生伸展胳膊,False,229.59
