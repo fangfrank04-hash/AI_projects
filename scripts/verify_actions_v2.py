@@ -157,9 +157,14 @@ def build_summary(rows):
     }
 
 
-def write_reports(rows, summary, output_dir=REPORTS_DIR):
+def write_reports(rows, summary, output_dir=REPORTS_DIR, answers_path=ANSWERS_PATH):
     """写入 Markdown 汇总报告和 CSV 明细。"""
     output_dir = Path(output_dir)
+    answers_path = Path(answers_path)
+    try:
+        answers_display_path = answers_path.resolve().relative_to(ROOT_DIR.resolve()).as_posix()
+    except ValueError:
+        answers_display_path = answers_path.as_posix()
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = output_dir / "detection_report.md"
     csv_path = output_dir / "detection_results.csv"
@@ -177,7 +182,7 @@ def write_reports(rows, summary, output_dir=REPORTS_DIR):
         "# AI 监考检测率报告",
         "",
         f"- 生成时间：{generated_at}",
-        f"- 标准答案表：`{ANSWERS_PATH.relative_to(ROOT_DIR).as_posix()}`",
+        f"- 标准答案表：`{answers_display_path}`",
         f"- 样本总数：{summary['total']['count']} 张",
         "- 正常考试误报：{count}/{total}（{rate:.2f}%）".format(
             **summary["normal_false_positives"]
@@ -286,7 +291,7 @@ def run_verification(
             print(f"[进度] {index}/{len(images)}")
 
     summary = build_summary(rows)
-    paths = write_reports(rows, summary, output_dir)
+    paths = write_reports(rows, summary, output_dir, answers_path=answers_path)
     return rows, summary, paths
 
 
