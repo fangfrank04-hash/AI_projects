@@ -21,7 +21,7 @@ def test(
     max_left_angle: Optional[float] = Query(None, description="左右角 > 该值→向左看，不传用默认 6"),
     max_right_angle: Optional[float] = Query(None, description="左右角 < 该值→向右看，不传用默认 -6"),
     max_up_angle: Optional[float] = Query(None, description="上下角 > 该值→向上看，不传用默认 6"),
-    max_down_angle: Optional[float] = Query(None, description="上下角 < 该值→向下看，不传用默认 -1"),
+    max_down_angle: Optional[float] = Query(None, description="上下角 < 该值→向下看，不传用默认 -0.5"),
 ):
     """测试人脸识别（使用内置测试图片）。
 
@@ -47,7 +47,7 @@ async def upload_face(
     max_left_angle: Optional[float] = Form(None, description="左右角 > 该值→向左看，不传用默认 6"),
     max_right_angle: Optional[float] = Form(None, description="左右角 < 该值→向右看，不传用默认 -6"),
     max_up_angle: Optional[float] = Form(None, description="上下角 > 该值→向上看，不传用默认 6"),
-    max_down_angle: Optional[float] = Form(None, description="上下角 < 该值→向下看，不传用默认 -1"),
+    max_down_angle: Optional[float] = Form(None, description="上下角 < 该值→向下看，不传用默认 -0.5"),
 ):
     """上传图片识别监考动作。
 

@@ -37,6 +37,38 @@ class FaceAngleDefaultsTest(unittest.TestCase):
         self.assertEqual(thresholds.max_down_angle, DEFAULT_MAX_DOWN_ANGLE)
 
 
+class FaceDirectionBoundaryTest(unittest.TestCase):
+    def test_classifies_each_direction_and_keeps_exact_boundaries_normal(self):
+        proctor = ImageProctor(
+            config=Settings(
+                _env_file=None,
+                max_left_angle=6,
+                max_right_angle=-6,
+                max_up_angle=6,
+                max_down_angle=-0.5,
+            )
+        )
+        try:
+            self.assertEqual(1, proctor._classify_face_direction(0, -6.01))
+            self.assertEqual(3, proctor._classify_face_direction(0, 6.01))
+            self.assertEqual(2, proctor._classify_face_direction(-0.51, 0))
+            self.assertEqual(4, proctor._classify_face_direction(6.01, 0))
+
+            for pitch, yaw in ((0, -6), (0, 6), (-0.5, 0), (6, 0)):
+                with self.subTest(pitch=pitch, yaw=yaw):
+                    self.assertEqual(0, proctor._classify_face_direction(pitch, yaw))
+        finally:
+            proctor.close()
+
+    def test_horizontal_direction_keeps_priority_over_vertical_direction(self):
+        proctor = ImageProctor(config=Settings(_env_file=None))
+        try:
+            self.assertEqual(1, proctor._classify_face_direction(-100, -100))
+            self.assertEqual(3, proctor._classify_face_direction(100, 100))
+        finally:
+            proctor.close()
+
+
 class BuildFaceAnglesTest(unittest.TestCase):
     def test_returns_none_when_nothing_passed(self):
         # Java 不传任何参数：service 返回 None，交给 ml 层用默认值。

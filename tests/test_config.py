@@ -43,6 +43,7 @@ class SettingsLoadingTest(unittest.TestCase):
         self.assertEqual(0.25, config.turn_body_shoulder_dist)
         self.assertEqual(0.05, config.seated_turn_max_hip_visibility)
         self.assertEqual(0.5, config.visibility_threshold)
+        self.assertEqual(-0.5, config.max_down_angle)
 
     def test_seated_turn_has_a_machine_readable_action_type(self):
         self.assertEqual("seated_turn", ActionType.SEATED_TURN.value)

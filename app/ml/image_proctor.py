@@ -439,22 +439,25 @@ class ImageProctor:
         x = angles[0] * 57.3
         y = angles[1] * 57.3
 
-        if y < self.max_right_angle:
-            direction = 1
-        elif y > self.max_left_angle:
-            direction = 3
-        elif x < self.max_down_angle:
-            direction = 2
-        elif x > self.max_up_angle:
-            direction = 4
-        else:
-            direction = 0
+        direction = self._classify_face_direction(x, y)
 
         logger.debug("Angle x=%s y=%s direction=%s", x, y, direction)
 
         self.directions.append(direction)
 
         self._check_direction()
+
+    def _classify_face_direction(self, pitch, yaw):
+        """Classify face direction while preserving the established priority."""
+        if yaw < self.max_right_angle:
+            return 1
+        if yaw > self.max_left_angle:
+            return 3
+        if pitch < self.max_down_angle:
+            return 2
+        if pitch > self.max_up_angle:
+            return 4
+        return 0
 
     def _check_independence(self, count):
         if count == 1:

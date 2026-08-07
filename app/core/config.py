@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     max_left_angle: float = 6
     max_right_angle: float = -6
     max_up_angle: float = 6
-    max_down_angle: float = -1
+    max_down_angle: float = -0.5
 
     # Phone and pose actions. Defaults match the values previously used by ImageProctor.
     phone_wrist_ear_dist: float = Field(default=0.55, ge=0)
