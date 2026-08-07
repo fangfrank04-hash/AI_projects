@@ -28,11 +28,11 @@ Copy the seven files from the Windows temporary directory into the exact paths a
 
 - [ ] **Step 2: Write the independent answer manifest**
 
-Use fields `image_path,source_set,scenario,expected_category,split,include_in_main,note`. Set `source_set=fixed_rear_45deg`, `split=field_check`, and `include_in_main=0` for every row. Use the seven business labels agreed with the user.
+Use fields `image_path,source_set,scenario,expected_category,split,include_in_main,note`. Set `source_set=fixed_rear_45deg`, `split=field_check`, and `include_in_main=1` for every row so the independent verifier scores all seven. Use the seven business labels agreed with the user.
 
 - [ ] **Step 3: Validate the manifest**
 
-Run a Python check calling `load_answer_manifest()` and assert exactly seven rows, zero included in the main set, and all files exist.
+Run a Python check calling `load_answer_manifest()` and assert exactly seven rows, all seven are included in this independent run, and all files exist.
 
 - [ ] **Step 4: Commit the data set**
 
@@ -95,7 +95,7 @@ Run `Import-Csv assets/test_images/test_answers.csv | Measure-Object` and confir
 
 - [ ] **Step 2: Confirm the new set is isolated**
 
-Run `Import-Csv assets/test_images/fixed_rear_45deg/test_answers.csv | Where-Object include_in_main -ne 0` and expect no output.
+Run `Import-Csv assets/test_images/fixed_rear_45deg/test_answers.csv | Where-Object include_in_main -ne 1` and expect no output. Confirm separately that none of the seven paths occur in `assets/test_images/test_answers.csv`.
 
 - [ ] **Step 3: Confirm a clean tree and list recent commits**
 

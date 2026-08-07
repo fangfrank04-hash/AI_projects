@@ -215,6 +215,29 @@ class VerifyActionsReportTest(unittest.TestCase):
             self.assertEqual(csv_rows[1]["filename"], "person_entering_01.jpg")
             self.assertEqual(csv_rows[1]["passed"], "False")
 
+    def test_write_reports_names_the_custom_answer_manifest(self):
+        rows = [
+            {
+                "filename": "rear45_001_normal.jpg",
+                "expected_category": "正常考试",
+                "actual": "正常考试中",
+                "passed": True,
+                "elapsed_ms": 100.0,
+            }
+        ]
+        summary = report.build_summary(rows)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = report.write_reports(
+                rows,
+                summary,
+                tmp,
+                answers_path=Path("custom/answers.csv"),
+            )
+
+            markdown = paths["markdown"].read_text(encoding="utf-8")
+            self.assertIn("标准答案表：`custom/answers.csv`", markdown)
+
 
 if __name__ == "__main__":
     unittest.main()

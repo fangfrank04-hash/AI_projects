@@ -25,7 +25,7 @@ reports/fixed_rear_45deg/
   detection_results.csv
 ```
 
-图片使用稳定、可读的文件名，不保留临时剪贴板随机名称。答案表沿用主测试的字段格式，但 `source_set` 固定为 `fixed_rear_45deg`，`split` 固定为 `field_check`。
+图片使用稳定、可读的文件名，不保留临时剪贴板随机名称。答案表沿用主测试的字段格式，但 `source_set` 固定为 `fixed_rear_45deg`，`split` 固定为 `field_check`。每行 `include_in_main` 填 `1`，表示该照片参加这张独立答案表的评分；它不会被写入 305 张主答案表。
 
 ## 标准答案
 
