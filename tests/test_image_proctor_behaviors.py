@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from app.core.config import Settings
 from app.ml.image_proctor import ImageProctor
 from app.schemas.proctor import ActionType
 
@@ -41,6 +42,46 @@ class ImageProctorBehaviorTest(unittest.TestCase):
         result = analyze_sample(Path("normal") / "normal_side_08_174419.jpg")
 
         self.assertNotEqual(result.action_type, ActionType.STRETCH_ARM)
+
+
+class ConfiguredThresholdsTest(unittest.TestCase):
+    def test_image_proctor_uses_every_injected_action_threshold(self):
+        config = Settings(
+            _env_file=None,
+            phone_wrist_ear_dist=0.44,
+            phone_arm_angle=26,
+            stretch_arm_angle=139,
+            horizontal_stretch_arm_angle=151,
+            horizontal_stretch_visibility=0.45,
+            horizontal_stretch_arm_length=1.1,
+            horizontal_stretch_wrist_ear_dist=1.7,
+            elbow_stretch_visibility=0.3,
+            elbow_stretch_max_dy=0.4,
+            elbow_stretch_min_reach=0.8,
+            turn_body_shoulder_dist=0.2,
+            visibility_threshold=0.6,
+        )
+        proctor = ImageProctor(config=config)
+        try:
+            expected = {
+                "phone_wrist_ear_dist": 0.44,
+                "phone_arm_angle": 26,
+                "stretch_arm_angle": 139,
+                "horizontal_stretch_arm_angle": 151,
+                "horizontal_stretch_visibility": 0.45,
+                "horizontal_stretch_arm_length": 1.1,
+                "horizontal_stretch_wrist_ear_dist": 1.7,
+                "elbow_stretch_visibility": 0.3,
+                "elbow_stretch_max_dy": 0.4,
+                "elbow_stretch_min_reach": 0.8,
+                "turn_body_shoulder_dist": 0.2,
+                "visibility_threshold": 0.6,
+            }
+            for name, value in expected.items():
+                with self.subTest(name=name):
+                    self.assertEqual(value, getattr(proctor, name))
+        finally:
+            proctor.close()
 
 
 if __name__ == "__main__":

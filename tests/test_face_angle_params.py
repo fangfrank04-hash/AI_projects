@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from app.core.config import Settings
 from app.ml.image_proctor import (
     DEFAULT_MAX_DOWN_ANGLE,
     DEFAULT_MAX_LEFT_ANGLE,
@@ -66,6 +67,33 @@ class NoPollutionTest(unittest.TestCase):
             _analyze(proctor, None)
             self.assertEqual(proctor.max_left_angle, DEFAULT_MAX_LEFT_ANGLE)
             self.assertEqual(proctor.max_down_angle, DEFAULT_MAX_DOWN_ANGLE)
+        finally:
+            proctor.close()
+
+    def test_injected_face_defaults_are_restored_after_request_override(self):
+        config = Settings(
+            _env_file=None,
+            max_left_angle=12,
+            max_right_angle=-11,
+            max_up_angle=10,
+            max_down_angle=-9,
+        )
+        proctor = ImageProctor(config=config)
+        try:
+            proctor._apply_face_angles(
+                FaceAngleThresholds(
+                    max_left_angle=20,
+                    max_right_angle=-20,
+                    max_up_angle=20,
+                    max_down_angle=-20,
+                )
+            )
+            proctor._apply_face_angles(None)
+
+            self.assertEqual(12, proctor.max_left_angle)
+            self.assertEqual(-11, proctor.max_right_angle)
+            self.assertEqual(10, proctor.max_up_angle)
+            self.assertEqual(-9, proctor.max_down_angle)
         finally:
             proctor.close()
 
