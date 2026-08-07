@@ -1,0 +1,8 @@
+image_path,source_set,scenario,expected_category,split,include_in_main,note
+assets/test_images/fixed_rear_45deg/images/rear45_001_normal.jpg,fixed_rear_45deg,normal,正常考试,field_check,1,正常考试
+assets/test_images/fixed_rear_45deg/images/rear45_002_turn_head.jpg,fixed_rear_45deg,turn_head,视线偏移,field_check,1,转头
+assets/test_images/fixed_rear_45deg/images/rear45_003_turn_head_body.jpg,fixed_rear_45deg,turn_head_body,视线偏移,field_check,1,转头加转身
+assets/test_images/fixed_rear_45deg/images/rear45_004_stand_up.jpg,fixed_rear_45deg,stand_up,离开座位,field_check,1,起身站起来
+assets/test_images/fixed_rear_45deg/images/rear45_005_stretch_arm.jpg,fixed_rear_45deg,stretch_arm,伸胳膊,field_check,1,伸展胳膊
+assets/test_images/fixed_rear_45deg/images/rear45_006_stretch_arm.jpg,fixed_rear_45deg,stretch_arm,伸胳膊,field_check,1,伸展胳膊
+assets/test_images/fixed_rear_45deg/images/rear45_007_normal.jpg,fixed_rear_45deg,normal,正常考试,field_check,1,正常考试
