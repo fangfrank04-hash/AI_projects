@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     elbow_stretch_max_dy: float = Field(default=0.5, ge=0)
     elbow_stretch_min_reach: float = Field(default=0.7, ge=0)
     turn_body_shoulder_dist: float = Field(default=0.25, ge=0)
+    seated_turn_max_hip_visibility: float = Field(default=0.05, ge=0, le=1)
     visibility_threshold: float = Field(default=0.5, ge=0, le=1)
 
     # Multi-person fallback

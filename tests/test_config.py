@@ -7,6 +7,7 @@ from unittest.mock import patch
 from pydantic import ValidationError
 
 from app.core.config import Settings
+from app.schemas.proctor import ActionType
 
 
 class SettingsLoadingTest(unittest.TestCase):
@@ -40,7 +41,11 @@ class SettingsLoadingTest(unittest.TestCase):
         self.assertEqual(0.5, config.elbow_stretch_max_dy)
         self.assertEqual(0.7, config.elbow_stretch_min_reach)
         self.assertEqual(0.25, config.turn_body_shoulder_dist)
+        self.assertEqual(0.05, config.seated_turn_max_hip_visibility)
         self.assertEqual(0.5, config.visibility_threshold)
+
+    def test_seated_turn_has_a_machine_readable_action_type(self):
+        self.assertEqual("seated_turn", ActionType.SEATED_TURN.value)
 
 
 class SettingsValidationTest(unittest.TestCase):
@@ -51,6 +56,8 @@ class SettingsValidationTest(unittest.TestCase):
             {"log_level": "verbose"},
             {"multi_person_pose_confidence": 1.1},
             {"visibility_threshold": -0.1},
+            {"seated_turn_max_hip_visibility": -0.01},
+            {"seated_turn_max_hip_visibility": 1.01},
             {"proctor_pool_size": 0},
             {"multi_person_max_poses": 0},
         )

@@ -15,6 +15,10 @@ class SplitDeploymentSyncTest(unittest.TestCase):
                 ROOT_DIR / "app" / "ml" / "image_proctor.py",
                 ROOT_DIR / "deploy_split" / "code" / "app" / "ml" / "image_proctor.py",
             ),
+            (
+                ROOT_DIR / "app" / "schemas" / "proctor.py",
+                ROOT_DIR / "deploy_split" / "code" / "app" / "schemas" / "proctor.py",
+            ),
         )
 
         for primary, deployment in pairs:
