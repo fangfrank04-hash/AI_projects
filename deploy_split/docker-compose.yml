@@ -13,6 +13,10 @@ services:
     ports:
       - "8000:8000"                # 换端口改左边，如 "9000:8000"
     restart: unless-stopped
+    # 可选：复制 .env.example 为 .env 后，可覆盖识别阈值；文件不存在时使用代码默认值。
+    env_file:
+      - path: .env
+        required: false
     # 多进程启动：--workers 2 开 2 个进程吃满多核（4核机建议 2~3，不超过核数）。
     command: ["/app/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
     volumes:

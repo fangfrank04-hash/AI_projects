@@ -14,6 +14,10 @@ services:
     ports:
       - "8000:8000"               # 左边是宿主机端口，如内网要用别的端口改左边即可，如 "9000:8000"
     restart: unless-stopped       # 容器异常退出/服务器重启后自动拉起
+    # 可选：复制 .env.example 为 .env 后，可覆盖识别阈值；文件不存在时使用代码默认值。
+    env_file:
+      - path: .env
+        required: false
     environment:
       - LOG_LEVEL=INFO
     # 健康检查：定时打 /ping，容器状态里能看到 healthy/unhealthy

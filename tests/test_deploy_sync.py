@@ -23,6 +23,10 @@ class SplitDeploymentSyncTest(unittest.TestCase):
                 ROOT_DIR / "app" / "api" / "v1" / "proctor.py",
                 ROOT_DIR / "deploy_split" / "code" / "app" / "api" / "v1" / "proctor.py",
             ),
+            (
+                ROOT_DIR / ".env.example",
+                ROOT_DIR / "deploy_split" / ".env.example",
+            ),
         )
 
         for primary, deployment in pairs:
