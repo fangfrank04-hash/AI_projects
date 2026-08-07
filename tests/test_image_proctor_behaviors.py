@@ -2,6 +2,7 @@ import contextlib
 import io
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image
 
@@ -43,6 +44,23 @@ class ImageProctorBehaviorTest(unittest.TestCase):
 
         self.assertNotEqual(result.action_type, ActionType.STRETCH_ARM)
 
+    def test_detects_seated_body_turn(self):
+        result = analyze_sample(Path("leave_seat") / "turn_body_left_90_01_174519.jpg")
+
+        self.assertEqual(ActionType.SEATED_TURN, result.action_type)
+
+    def test_seated_turn_requires_both_hips_to_be_unreliable(self):
+        proctor = ImageProctor(config=Settings(_env_file=None))
+        try:
+            hidden_hip = SimpleNamespace(visibility=0.04)
+            boundary_hip = SimpleNamespace(visibility=0.05)
+            visible_hip = SimpleNamespace(visibility=0.8)
+
+            self.assertTrue(proctor._is_seated_turn(hidden_hip, boundary_hip))
+            self.assertFalse(proctor._is_seated_turn(hidden_hip, visible_hip))
+        finally:
+            proctor.close()
+
 
 class ConfiguredThresholdsTest(unittest.TestCase):
     def test_image_proctor_uses_every_injected_action_threshold(self):
@@ -59,6 +77,7 @@ class ConfiguredThresholdsTest(unittest.TestCase):
             elbow_stretch_max_dy=0.4,
             elbow_stretch_min_reach=0.8,
             turn_body_shoulder_dist=0.2,
+            seated_turn_max_hip_visibility=0.04,
             visibility_threshold=0.6,
         )
         proctor = ImageProctor(config=config)
@@ -75,6 +94,7 @@ class ConfiguredThresholdsTest(unittest.TestCase):
                 "elbow_stretch_max_dy": 0.4,
                 "elbow_stretch_min_reach": 0.8,
                 "turn_body_shoulder_dist": 0.2,
+                "seated_turn_max_hip_visibility": 0.04,
                 "visibility_threshold": 0.6,
             }
             for name, value in expected.items():

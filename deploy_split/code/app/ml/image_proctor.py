@@ -43,6 +43,8 @@ POSE_LM_LEFT_ELBOW = 13
 POSE_LM_RIGHT_ELBOW = 14
 POSE_LM_LEFT_WRIST = 15
 POSE_LM_RIGHT_WRIST = 16
+POSE_LM_LEFT_HIP = 23
+POSE_LM_RIGHT_HIP = 24
 
 
 # ===== 面部角度判定阈值默认值（判断视线偏移/转头方向用）=====
@@ -120,6 +122,9 @@ class ImageProctor:
         self.elbow_stretch_max_dy = self._config.elbow_stretch_max_dy
         self.elbow_stretch_min_reach = self._config.elbow_stretch_min_reach
         self.turn_body_shoulder_dist = self._config.turn_body_shoulder_dist
+        self.seated_turn_max_hip_visibility = (
+            self._config.seated_turn_max_hip_visibility
+        )
         self.visibility_threshold = self._config.visibility_threshold
 
         # ===== MediaPipe 模型实例：只创建一次，全生命周期复用 =====
@@ -508,6 +513,13 @@ class ImageProctor:
         """判断关键点是否可见（visibility > 阈值才算可信）"""
         return point.visibility > self.visibility_threshold
 
+    def _is_seated_turn(self, left_hip, right_hip):
+        """Return whether both hip landmarks are unreliable in the supported crop."""
+        return (
+            max(left_hip.visibility, right_hip.visibility)
+            <= self.seated_turn_max_hip_visibility
+        )
+
     def _distance(self, a, b):
         """计算两个关键点之间的归一化欧氏距离"""
         return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
@@ -598,6 +610,8 @@ class ImageProctor:
         re_l = landmarks[POSE_LM_RIGHT_ELBOW]   # 右肘
         lw = landmarks[POSE_LM_LEFT_WRIST]      # 左腕
         rw = landmarks[POSE_LM_RIGHT_WRIST]     # 右腕
+        lh = landmarks[POSE_LM_LEFT_HIP]        # 左髋
+        rh = landmarks[POSE_LM_RIGHT_HIP]       # 右髋
 
         # ===== 1. 打电话（腕耳距<0.55 + 如果肘可见则臂角<30°）=====
         # 左手打电话
@@ -710,11 +724,17 @@ class ImageProctor:
                 # 不是双臂都伸直，才算转身
                 if not (left_arm_straight and right_arm_straight):
                     self.warning_count += 1
+                    if self._is_seated_turn(lh, rh):
+                        action_type = ActionType.SEATED_TURN
+                        action_label = "视线偏移(考生坐姿转身)"
+                    else:
+                        action_type = ActionType.TURN_BODY
+                        action_label = "离开座位(考生转身)"
                     self.texts = [
                         ("警告，考生转身", (255, 0, 0)),
                         (str(self.warning_count), (255, 0, 0)),
                     ]
-                    self._set_result(ActionType.TURN_BODY, "离开座位(考生转身)", True, person_count=1)
+                    self._set_result(action_type, action_label, True, person_count=1)
                     return True
 
         # 都没命中，返回 False 让兼底逻辑处理（视线偏移/离开座位/转头/正常）

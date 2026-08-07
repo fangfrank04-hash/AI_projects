@@ -34,6 +34,7 @@ ACTION_CATEGORY_MAP = {
     "turn_head": "视线偏移",
     "leave_seat": "离开座位",
     "turn_body": "离开座位",
+    "seated_turn": "视线偏移",
     "multi_person": "多人",
     "phone_call": "打电话",
     "stretch_arm": "伸胳膊",

@@ -139,6 +139,27 @@ class VerifyActionsReportTest(unittest.TestCase):
         self.assertEqual("离开座位", row["actual_category"])
         self.assertFalse(row["passed"])
 
+    def test_seated_turn_action_type_maps_to_gaze_away(self):
+        answer = AnswerRow(
+            image_path="sample.jpg",
+            source_set="samples_v2",
+            scenario="turn_body_left_90",
+            expected_category="视线偏移",
+            split="eval",
+            include_in_main=True,
+            note="坐着转身",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Image.new("RGB", (4, 4)).save(root / "sample.jpg")
+
+            row = report.run_single(
+                FakeProctor("seated_turn", "视线偏移(考生坐姿转身)"), answer, root
+            )
+
+        self.assertEqual("视线偏移", row["actual_category"])
+        self.assertTrue(row["passed"])
+
     def test_build_summary_counts_pass_fail_and_latency(self):
         rows = [
             {
