@@ -13,7 +13,7 @@ from mediapipe.tasks import python as mp_tasks
 from mediapipe.tasks.python import vision as mp_vision
 from PIL import Image
 
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.schemas.proctor import ActionType
 
 logger = logging.getLogger(__name__)
@@ -48,10 +48,10 @@ POSE_LM_RIGHT_WRIST = 16
 # ===== 面部角度判定阈值默认值（判断视线偏移/转头方向用）=====
 # solvePnP 算出头部 yaw(左右)/pitch(上下) 角度后，超过这些阈值就判定为看向对应方向。
 # 这 4 个值可由接口参数覆盖（Java 不传则用默认）。
-DEFAULT_MAX_LEFT_ANGLE = 6      # yaw > 该值 → 向左看
-DEFAULT_MAX_RIGHT_ANGLE = -6    # yaw < 该值 → 向右看
-DEFAULT_MAX_UP_ANGLE = 6        # pitch > 该值 → 向上看
-DEFAULT_MAX_DOWN_ANGLE = -1     # pitch < 该值 → 向下看
+DEFAULT_MAX_LEFT_ANGLE = settings.max_left_angle      # yaw > 该值 → 向左看
+DEFAULT_MAX_RIGHT_ANGLE = settings.max_right_angle    # yaw < 该值 → 向右看
+DEFAULT_MAX_UP_ANGLE = settings.max_up_angle          # pitch > 该值 → 向上看
+DEFAULT_MAX_DOWN_ANGLE = settings.max_down_angle      # pitch < 该值 → 向下看
 
 
 @dataclass
@@ -80,12 +80,19 @@ class FaceAngleThresholds:
 
 # 基于图片的监考类（逻辑与 FrontCamera 一致，不调用摄像头）
 class ImageProctor:
-    def __init__(self):
+    def __init__(self, config: Settings | None = None):
+        self._config = config or settings
+        self._default_face_angles = FaceAngleThresholds(
+            max_left_angle=self._config.max_left_angle,
+            max_right_angle=self._config.max_right_angle,
+            max_up_angle=self._config.max_up_angle,
+            max_down_angle=self._config.max_down_angle,
+        )
         # 面部角度判定阈值（默认值，可被单次请求的参数临时覆盖）
-        self.max_left_angle = DEFAULT_MAX_LEFT_ANGLE
-        self.max_right_angle = DEFAULT_MAX_RIGHT_ANGLE
-        self.max_up_angle = DEFAULT_MAX_UP_ANGLE
-        self.max_down_angle = DEFAULT_MAX_DOWN_ANGLE
+        self.max_left_angle = self._default_face_angles.max_left_angle
+        self.max_right_angle = self._default_face_angles.max_right_angle
+        self.max_up_angle = self._default_face_angles.max_up_angle
+        self.max_down_angle = self._default_face_angles.max_down_angle
 
         # 周期内看到的方向
         self.directions = []
@@ -96,22 +103,24 @@ class ImageProctor:
 
         # ===== Pose 动作检测阈值 v2（基于 180 张真实样本标定，2026-07-03）=====
         # 6 大类：正常考试 / 视线偏移 / 离开座位 / 多人 / 打电话 / 伸胳膊
-        self.phone_wrist_ear_dist = 0.55      # 打电话：腕耳归一化距离 < 0.55
-        self.phone_arm_angle = 30            # 打电话：对应侧臂角 < 30°（手臂弯曲贴头）
-        self.stretch_arm_angle = 140         # 伸展：肩-肘-腕夹角 > 140°
-        self.horizontal_stretch_arm_angle = 155   # 水平/斜下伸展：臂角 ≥ 155°（胳膊伸直）
+        self.phone_wrist_ear_dist = self._config.phone_wrist_ear_dist
+        self.phone_arm_angle = self._config.phone_arm_angle
+        self.stretch_arm_angle = self._config.stretch_arm_angle
+        self.horizontal_stretch_arm_angle = self._config.horizontal_stretch_arm_angle
         # 门槛用肩+肘+腕三点可见度，过滤掉低可见度的幻觉手腕（否则正常/离座姿势会误报）。
-        self.horizontal_stretch_visibility = 0.4
-        self.horizontal_stretch_arm_length = 1.05   # 腕-肩距/肩宽 ≥ 1.05（正常弯臂 <1.0）
-        self.horizontal_stretch_wrist_ear_dist = 1.6  # 腕-耳距/肩宽 ≥ 1.6（手远离头部，排除打电话）
+        self.horizontal_stretch_visibility = self._config.horizontal_stretch_visibility
+        self.horizontal_stretch_arm_length = self._config.horizontal_stretch_arm_length
+        self.horizontal_stretch_wrist_ear_dist = (
+            self._config.horizontal_stretch_wrist_ear_dist
+        )
         # 肘部兼底规则（基于 305 张样本标定，2026-07-30）：伸直手臂时手腕 visibility 极低不可靠，
         # 改用“肘接近/高于肩”判断。数据：伸胳膊 elbow_dy(肘肩高度差/肩宽) avg -0.05；
         # 正常/多人/视线偏移/打电话的 elbow_dy 最小都 ≥ 0.69（肘在肩下方）。
-        self.elbow_stretch_visibility = 0.25   # 肩、肘可见度下限（肘比腕可靠）
-        self.elbow_stretch_max_dy = 0.5         # (肘.y - 肩.y)/肩宽 ≤ 0.5 → 肘齐肩或更高
-        self.elbow_stretch_min_reach = 0.7      # 肘-肩距/肩宽 ≥ 0.7（排除肘塌缩到肩上的退化情况）
-        self.turn_body_shoulder_dist = 0.25   # 转身90度：双肩归一化距离 < 0.25
-        self.visibility_threshold = 0.5     # 关键点 visibility 过滤阈值
+        self.elbow_stretch_visibility = self._config.elbow_stretch_visibility
+        self.elbow_stretch_max_dy = self._config.elbow_stretch_max_dy
+        self.elbow_stretch_min_reach = self._config.elbow_stretch_min_reach
+        self.turn_body_shoulder_dist = self._config.turn_body_shoulder_dist
+        self.visibility_threshold = self._config.visibility_threshold
 
         # ===== MediaPipe 模型实例：只创建一次，全生命周期复用 =====
         # 创建模型（加载计算图）是最耗时的一步，放到 __init__ 里，避免每张图重复加载。
@@ -136,17 +145,17 @@ class ImageProctor:
         # 多人兜底：PoseLandmarker 检测“身体”，补人脸漏检的背影/侧脸/边缘人。
         # 用 model_asset_buffer（自读字节）而非路径：MediaPipe 在 Windows 下会错误拼接绝对路径。
         # 模型缺失时优雅降级（置 None），不影响其他检测。
-        self.multi_person_min_separation = settings.multi_person_min_separation
+        self.multi_person_min_separation = self._config.multi_person_min_separation
         self._pose_landmarker = None
         try:
-            with open(settings.pose_landmarker_path, "rb") as model_file:
+            with open(self._config.pose_landmarker_path, "rb") as model_file:
                 pose_model_bytes = model_file.read()
             self._pose_landmarker = mp_vision.PoseLandmarker.create_from_options(
                 mp_vision.PoseLandmarkerOptions(
                     base_options=mp_tasks.BaseOptions(model_asset_buffer=pose_model_bytes),
                     running_mode=mp_vision.RunningMode.IMAGE,
-                    num_poses=settings.multi_person_max_poses,
-                    min_pose_detection_confidence=settings.multi_person_pose_confidence,
+                    num_poses=self._config.multi_person_max_poses,
+                    min_pose_detection_confidence=self._config.multi_person_pose_confidence,
                 )
             )
         except Exception as exc:
@@ -245,7 +254,7 @@ class ImageProctor:
 
         每次调用都重新赋值（None 则回默认值），避免上一次请求的自定义值残留。
         """
-        thresholds = face_angles or FaceAngleThresholds()
+        thresholds = face_angles or self._default_face_angles
         self.max_left_angle = thresholds.max_left_angle
         self.max_right_angle = thresholds.max_right_angle
         self.max_up_angle = thresholds.max_up_angle
