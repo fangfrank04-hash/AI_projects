@@ -126,7 +126,7 @@ Windows PowerShell 下脚本的中文输出会乱码（数字/英文正常）。
 | `max_left_angle` | 6 | 左右角 > 该值 → 向左看 |
 | `max_right_angle` | -6 | 左右角 < 该值 → 向右看 |
 | `max_up_angle` | 6 | 上下角 > 该值 → 向上看 |
-| `max_down_angle` | -1 | 上下角 < 该值 → 向下看 |
+| `max_down_angle` | -0.5 | 上下角 < 该值 → 向下看 |
 
 ### 5. （2026-07-30）验证集扩容：180 → 305 张
 `verify_actions_v2.py` 默认扫 `samples_v2` + `targeted_samples` 两套数据源，`CATEGORY_MAP` 补了 `person_enter`/`person_pass_behind` 前缀。只改测试脚本，不影响业务代码/镜像。

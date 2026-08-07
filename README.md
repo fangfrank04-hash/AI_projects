@@ -86,7 +86,8 @@ AiProctor0623/
 实际参与识别的检测阈值都可以在 `.env` 文件中调整，不用改代码。配置优先级为：
 系统环境变量（含 Docker `environment`）> 项目根目录 `.env` > 代码默认值。类型或范围错误时
 服务会在启动阶段明确报错，不会带着错误配置继续运行。修改配置后必须重启服务，完整字段见
-[`.env.example`](.env.example)。
+[`.env.example`](.env.example)。其中坐姿转身会同时检查双肩距离和左右髋关键点可见度，
+对应 `TURN_BODY_SHOULDER_DIST` 与 `SEATED_TURN_MAX_HIP_VISIBILITY`。
 
 ## 新手向文档
 

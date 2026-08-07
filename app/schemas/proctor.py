@@ -33,6 +33,7 @@ class ActionType(str, Enum):
     LEAVE_SEAT = "leave_seat"    # 离开座位
     TURN_HEAD = "turn_head"      # 转头
     TURN_BODY = "turn_body"      # 转身
+    SEATED_TURN = "seated_turn"  # 坐姿转身
     PHONE_CALL = "phone_call"    # 疑似打电话
     STRETCH_ARM = "stretch_arm"  # 伸展胳膊
     MULTI_PERSON = "multi_person"  # 多人出现

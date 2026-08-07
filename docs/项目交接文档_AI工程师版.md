@@ -228,7 +228,7 @@ deploy_split/
 | `reports/detection_report.md` | 最新准确率报告（每次 verify 覆盖） |
 
 ### API 契约（Java 对接）
-- `POST /upload_face`：multipart，字段 `file`；可选 Form：max_left_angle(6)/max_right_angle(-6)/max_up_angle(6)/max_down_angle(-1)
+- `POST /upload_face`：multipart，字段 `file`；可选 Form：max_left_angle(6)/max_right_angle(-6)/max_up_angle(6)/max_down_angle(-0.5)
 - 响应：`{"code":200,"message":"识别成功","data":{"warning":bool,"action_type":str,"action_label":str,"warning_count":int,"person_count":int}}`
 - action_type 8 种 → 6 大类归并：视线偏移=gaze_away+turn_head；离开座位=leave_seat+turn_body；其余一对一
 - `GET /ping`：`{"pong":true,...,"pool_ready":bool,"pool_size":int}`（探活用）

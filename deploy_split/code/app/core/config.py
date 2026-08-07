@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     max_left_angle: float = 6
     max_right_angle: float = -6
     max_up_angle: float = 6
-    max_down_angle: float = -1
+    max_down_angle: float = -0.5
 
     # Phone and pose actions. Defaults match the values previously used by ImageProctor.
     phone_wrist_ear_dist: float = Field(default=0.55, ge=0)
@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     elbow_stretch_max_dy: float = Field(default=0.5, ge=0)
     elbow_stretch_min_reach: float = Field(default=0.7, ge=0)
     turn_body_shoulder_dist: float = Field(default=0.25, ge=0)
+    seated_turn_max_hip_visibility: float = Field(default=0.05, ge=0, le=1)
     visibility_threshold: float = Field(default=0.5, ge=0, le=1)
 
     # Multi-person fallback

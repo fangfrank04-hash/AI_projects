@@ -43,6 +43,8 @@ POSE_LM_LEFT_ELBOW = 13
 POSE_LM_RIGHT_ELBOW = 14
 POSE_LM_LEFT_WRIST = 15
 POSE_LM_RIGHT_WRIST = 16
+POSE_LM_LEFT_HIP = 23
+POSE_LM_RIGHT_HIP = 24
 
 
 # ===== 面部角度判定阈值默认值（判断视线偏移/转头方向用）=====
@@ -120,6 +122,9 @@ class ImageProctor:
         self.elbow_stretch_max_dy = self._config.elbow_stretch_max_dy
         self.elbow_stretch_min_reach = self._config.elbow_stretch_min_reach
         self.turn_body_shoulder_dist = self._config.turn_body_shoulder_dist
+        self.seated_turn_max_hip_visibility = (
+            self._config.seated_turn_max_hip_visibility
+        )
         self.visibility_threshold = self._config.visibility_threshold
 
         # ===== MediaPipe 模型实例：只创建一次，全生命周期复用 =====
@@ -434,22 +439,25 @@ class ImageProctor:
         x = angles[0] * 57.3
         y = angles[1] * 57.3
 
-        if y < self.max_right_angle:
-            direction = 1
-        elif y > self.max_left_angle:
-            direction = 3
-        elif x < self.max_down_angle:
-            direction = 2
-        elif x > self.max_up_angle:
-            direction = 4
-        else:
-            direction = 0
+        direction = self._classify_face_direction(x, y)
 
         logger.debug("Angle x=%s y=%s direction=%s", x, y, direction)
 
         self.directions.append(direction)
 
         self._check_direction()
+
+    def _classify_face_direction(self, pitch, yaw):
+        """Classify face direction while preserving the established priority."""
+        if yaw < self.max_right_angle:
+            return 1
+        if yaw > self.max_left_angle:
+            return 3
+        if pitch < self.max_down_angle:
+            return 2
+        if pitch > self.max_up_angle:
+            return 4
+        return 0
 
     def _check_independence(self, count):
         if count == 1:
@@ -507,6 +515,13 @@ class ImageProctor:
     def _is_visible(self, point):
         """判断关键点是否可见（visibility > 阈值才算可信）"""
         return point.visibility > self.visibility_threshold
+
+    def _is_seated_turn(self, left_hip, right_hip):
+        """Return whether both hip landmarks are unreliable in the supported crop."""
+        return (
+            max(left_hip.visibility, right_hip.visibility)
+            <= self.seated_turn_max_hip_visibility
+        )
 
     def _distance(self, a, b):
         """计算两个关键点之间的归一化欧氏距离"""
@@ -579,8 +594,8 @@ class ImageProctor:
         6 大类对应关系：
         - 打电话 → "打电话"大类
         - 伸展胳膊 → "伸胳膊"大类
-        - 转身90度 → "离开座位"大类（子类：转身）
-        - 转头 → "离开座位"大类（子类：转头，由现有 solvePnP 处理）
+        - 坐姿转身 → "视线偏移"大类；其他转身 → "离开座位"大类
+        - 转头 → "视线偏移"大类（由现有 solvePnP 处理）
         - 站立/人消失 → "离开座位"大类（由兜底逻辑处理）
         - 脸消失但人在 → "视线偏移"大类（由兜底逻辑处理）
         - 多人 → "多人"大类（由现有 _check_independence 处理）
@@ -598,6 +613,8 @@ class ImageProctor:
         re_l = landmarks[POSE_LM_RIGHT_ELBOW]   # 右肘
         lw = landmarks[POSE_LM_LEFT_WRIST]      # 左腕
         rw = landmarks[POSE_LM_RIGHT_WRIST]     # 右腕
+        lh = landmarks[POSE_LM_LEFT_HIP]        # 左髋
+        rh = landmarks[POSE_LM_RIGHT_HIP]       # 右髋
 
         # ===== 1. 打电话（腕耳距<0.55 + 如果肘可见则臂角<30°）=====
         # 左手打电话
@@ -710,11 +727,17 @@ class ImageProctor:
                 # 不是双臂都伸直，才算转身
                 if not (left_arm_straight and right_arm_straight):
                     self.warning_count += 1
+                    if self._is_seated_turn(lh, rh):
+                        action_type = ActionType.SEATED_TURN
+                        action_label = "视线偏移(考生坐姿转身)"
+                    else:
+                        action_type = ActionType.TURN_BODY
+                        action_label = "离开座位(考生转身)"
                     self.texts = [
                         ("警告，考生转身", (255, 0, 0)),
                         (str(self.warning_count), (255, 0, 0)),
                     ]
-                    self._set_result(ActionType.TURN_BODY, "离开座位(考生转身)", True, person_count=1)
+                    self._set_result(action_type, action_label, True, person_count=1)
                     return True
 
         # 都没命中，返回 False 让兼底逻辑处理（视线偏移/离开座位/转头/正常）
