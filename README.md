@@ -81,6 +81,7 @@ AiProctor0623/
 ├── .env.example            配置模板
 ├── pyproject.toml          依赖声明（唯一来源）
 ├── uv.lock                 依赖版本锁定（必须提交）
+├── requirements.txt        由 uv.lock 导出，仅供 pip 用户参考（非权威）
 └── Dockerfile              容器构建
 ```
 
