@@ -43,15 +43,18 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 `data` 为结构化检测结果，字段见 `app/schemas/proctor.py` 的 `DetectionData`。
 
 ```json
-{ "code": 200, "message": "识别成功", "data": { "warning": false, "action_type": "normal", "action_label": "正常考试中", "warning_count": 0, "person_count": 1 } }
+{ "code": 200, "message": "识别成功", "data": { "user_id": "user001", "warning": false, "action_type": "normal", "action_label": "正常考试中", "warning_count": 0, "person_count": 1, "exception_code": null, "exception_message": null, "notify": false } }
 ```
 
 ### 上传图片示例
 
 ```bash
 curl -X POST http://localhost:8000/upload_face \
+  -F "user_id=user001" \
   -F "file=@your_photo.jpg"
 ```
+
+`user_id` 是必传字段。整张截图几乎全黑时返回 `exception_code=1001`；同一进程内同一用户连续黑屏只在第一次返回 `notify=true`，收到一张非黑屏有效图片后解除状态。当前服务不使用 Redis，因此 `workers>1` 或多台服务器时去重状态不跨进程共享。
 
 ## 项目结构
 
@@ -66,13 +69,13 @@ AiProctor0623/
 │   └── ml/                 机器学习核心代码
 │       ├── image_proctor.py    图片监考（核心逻辑，~570行）
 │       ├── front_camera.py     前置摄像头实时监考
-│       └── Toolkit.py          工具函数（写中文文字）
+│       └── toolkit.py          工具函数（写中文文字）
 ├── assets/                 静态资源
 │   ├── fonts/             字体文件
 │   └── test_images/       测试图片
 ├── models/                 模型文件
 │   ├── face_landmarker.task
-│   └── weights/yolo11n.pt
+│   └── pose_landmarker_lite.task
 ├── scripts/                调试和工具脚本
 ├── tests/                  测试
 ├── .env.example            配置模板

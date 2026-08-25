@@ -52,6 +52,10 @@ _temp_*/
 .superpowers/
 .learnings/
 .worktrees/
+.agents/
+.claude/
+.pytest_cache/
+.ruff_cache/
 
 # Generated deployment artifacts
 deploy_split/*.tar

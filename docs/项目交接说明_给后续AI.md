@@ -64,7 +64,7 @@ uv run python scripts/verify_actions_v2.py
 
 ### 其它脚本
 - `curate_targeted_samples.py`：筛选/整理拍摄的样本
-- `back_camera.py`：后置摄像头相关（YOLO），当前主链路没用到
+- （原 `back_camera.py` 后置摄像头 YOLO 调试脚本已随 YOLO 依赖整体移除而删除）
 
 ### 控制台中文乱码提醒
 Windows PowerShell 下脚本的中文输出会乱码（数字/英文正常）。**别依赖控制台看结果，直接读 `reports/` 下的 md/csv 文件。** PowerShell 不支持 `&&`（用 `;`），没有 `tail`/`head`（用 `Select-String`）。

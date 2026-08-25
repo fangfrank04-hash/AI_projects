@@ -85,7 +85,9 @@
 | MediaPipe FaceDetection (solutions) | 同上 | 多人兜底第一层 |
 | MediaPipe Pose (solutions) | 同上 | 姿态动作（打电话/伸胳膊/转身） |
 | PoseLandmarker (Tasks API) | `models/pose_landmarker_lite.task`（5.5MB，Google 官方 CDN 下载） | 多人兜底第二层（数"身体"） |
-| yolo11n.pt | `models/weights/yolo11n.pt` | **未使用**（ultralytics 已卸载，.dockerignore 已排除） |
+
+> 曾经引入过 YOLO（yolo11n.pt）做多人检测，后因 ultralytics/torch 体积过大已整体移除
+> （权重、config 配置、scripts/back_camera.py 均已删除），多人检测改用 PoseLandmarker 兜底。
 
 ### 3.4 数据集（不进镜像，仅本地验证用）
 | 目录 | 张数 | 说明 |
@@ -158,7 +160,7 @@ deploy_split/
 | 多人 72.86% | 背影/半入镜仍漏 | 人脸+姿态双兜底已到轻量方案上限 |
 | 离开座位 70% | 转身/转头边界案例误报为视线偏移 | 未专项攻坚 |
 | 伸胳膊剩 15% | 肘也被遮挡的极端样本 | 需手部检测模型 |
-| scripts/ 有 10 条 ruff 历史遗留 | 无功能影响 | back_camera/probe_keypoints_v2/capture/curate 的 import 排序、未用变量等；ruff 配置已 exclude scripts |
+| scripts/ 有 ruff 历史遗留 | 无功能影响 | probe_keypoints_v2/capture/curate 的 import 排序、未用变量等；ruff 配置已 exclude scripts（back_camera.py 已随 YOLO 移除删除） |
 | tests/test_api.py 依赖本机防火墙放行 | 仅开发机 | TestClient 走回环 socket；新 Python 解释器需 Windows 防火墙入站放行（曾致 pytest 卡死，已修） |
 | 开发机 Docker Desktop/WSL 频繁崩溃 | 仅开发机 | 已配 .wslconfig（内存10G/swap8G）缓解；构建失败重试通常即恢复 |
 
@@ -202,7 +204,7 @@ deploy_split/
 | `app/services/proctor_service.py` | 业务编排：ProctorPool 单例、run_in_threadpool、pool_status/shutdown |
 | `app/ml/image_proctor.py` | **核心算法**（~650行）：全部阈值、检测规则、ProctorPool 类 |
 | `app/ml/toolkit.py` / `front_camera.py` | 归档辅助（主链路不用） |
-| `app/schemas/proctor.py` | ApiResponse/ActionType(8种)/StatusCode/PingResponse |
+| `app/schemas/proctor.py` | ApiResponse/ActionType(10种，含 black_screen)/StatusCode/PingResponse |
 | `app/core/config.py` | 全部可配项（环境变量优先），含 PROCTOR_POOL_SIZE、multi_person_* |
 | `app/core/middleware.py` | 请求日志中间件 |
 | `app/core/exceptions.py` / `logging.py` / `offline_docs.py` | 异常/日志/离线 Swagger |
@@ -228,9 +230,10 @@ deploy_split/
 | `reports/detection_report.md` | 最新准确率报告（每次 verify 覆盖） |
 
 ### API 契约（Java 对接）
-- `POST /upload_face`：multipart，字段 `file`；可选 Form：max_left_angle(6)/max_right_angle(-6)/max_up_angle(6)/max_down_angle(-0.5)
-- 响应：`{"code":200,"message":"识别成功","data":{"warning":bool,"action_type":str,"action_label":str,"warning_count":int,"person_count":int}}`
-- action_type 8 种 → 6 大类归并：视线偏移=gaze_away+turn_head；离开座位=leave_seat+turn_body；其余一对一
+- `POST /upload_face`：multipart，必传字段 `user_id`、`file`；可选 Form：max_left_angle(6)/max_right_angle(-6)/max_up_angle(6)/max_down_angle(-0.5)
+- 黑屏时响应仍为成功码 `200`，`data.exception_code=1001`、`exception_message="检测到黑屏"`；同一进程内连续黑屏仅首次 `notify=true`，正常画面后解除。当前不使用 Redis，去重不跨 Uvicorn 进程。
+- 普通识别响应：`{"code":200,"message":"识别成功","data":{"user_id":str,"warning":bool,"action_type":str,"action_label":str,"warning_count":int,"person_count":int,"exception_code":null,"exception_message":null,"notify":false}}`
+- 动作类型包含 `black_screen`；原 8 种动作 → 6 大类归并规则不变，黑屏走 `exception_code=1001` 异常通道
 - `GET /ping`：`{"pong":true,...,"pool_ready":bool,"pool_size":int}`（探活用）
 - 离线 API 文档：服务地址 + `/docs`
 

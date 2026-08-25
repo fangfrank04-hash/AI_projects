@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # Service
     app_name: str = "AiProctor 智能监考"
     app_description: str = "AI智能体中心API服务"
-    app_version: str = "1.0.0"
+    app_version: str = "1.1.0"
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     # Paths
     font_path: str = str(BASE_DIR / "assets" / "fonts" / "YeZiGongChangAoYeHei-2.ttf")
     test_images_dir: str = str(BASE_DIR / "assets" / "test_images")
-    yolo_model_path: str = str(BASE_DIR / "models" / "weights" / "yolo11n.pt")
     face_landmarker_path: str = str(BASE_DIR / "models" / "face_landmarker.task")
     pose_landmarker_path: str = str(BASE_DIR / "models" / "pose_landmarker_lite.task")
 

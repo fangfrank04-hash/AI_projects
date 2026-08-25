@@ -24,7 +24,14 @@ dev = [
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-extend-exclude = [".venv", "scripts"]
+extend-exclude = [
+    ".venv",
+    "scripts",
+    ".agents",       # AI 助手工具文件，非项目代码
+    ".claude",       # AI 助手工具文件，非项目代码
+    "deploy_split",  # 部署交付物（含代码副本，只检查主代码）
+    "docs",          # docs/ 里有教学用的注释版副本，不参与 lint
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
@@ -32,7 +39,6 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "app/ml/front_camera.py" = ["F401", "E402"]
-"app/ml/back_camera.py" = ["F401", "E402"]
 # 测试通过 sys.path.insert 注入根目录后再 import，属合理模式
 "tests/test_accuracy.py" = ["E402"]
 
