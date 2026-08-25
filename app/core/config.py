@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # Service
     app_name: str = "AiProctor 智能监考"
     app_description: str = "AI智能体中心API服务"
-    app_version: str = "1.1.0"
+    app_version: str = "1.2.0"
     host: str = "0.0.0.0"
     port: int = Field(default=8000, ge=1, le=65535)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
