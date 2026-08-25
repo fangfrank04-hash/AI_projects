@@ -1,4 +1,4 @@
-# export_company_repo.ps1 —— 把当前项目导出为一个"全新干净仓库"，用于传公司代码库。
+﻿# export_company_repo.ps1 —— 把当前项目导出为一个"全新干净仓库"，用于传公司代码库。
 #
 # 原理：git archive 只导出 git 已跟踪的文件（自动排除 .gitignore 里的东西，
 # 比如 AI 工具目录、镜像 tar、.venv 等），导出后重新 git init，历史只有一个干净的初始提交。
