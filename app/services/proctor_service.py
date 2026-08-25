@@ -6,14 +6,16 @@ api 层只管"收请求、返响应"，具体的业务逻辑（读文件、转�
 import io
 import logging
 import os
+import threading
 
+import numpy as np
 from fastapi import UploadFile
 from fastapi.concurrency import run_in_threadpool
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import settings
 from app.ml.image_proctor import FaceAngleThresholds, ProctorPool, ProctorResult
-from app.schemas.proctor import ApiResponse, DetectionData, StatusCode
+from app.schemas.proctor import ActionType, ApiResponse, DetectionData, StatusCode
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +23,46 @@ logger = logging.getLogger(__name__)
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 # 允许的图片 MIME 类型前缀
 ALLOWED_CONTENT_PREFIX = "image/"
+BLACK_SCREEN_EXCEPTION_CODE = 1001
+BLACK_SCREEN_EXCEPTION_MESSAGE = "检测到黑屏"
+BLACK_SCREEN_PIXEL_THRESHOLD = 16
+BLACK_SCREEN_MIN_RATIO = 0.995
+
+
+def is_black_screen(image: Image.Image) -> bool:
+    """判断截图是否几乎全黑，采用保守阈值避免把普通暗图误报为黑屏。"""
+    grayscale = np.asarray(image.convert("L"), dtype=np.uint8)
+    if grayscale.size == 0:
+        return False
+    near_black_ratio = float(
+        np.count_nonzero(grayscale <= BLACK_SCREEN_PIXEL_THRESHOLD) / grayscale.size
+    )
+    return near_black_ratio >= BLACK_SCREEN_MIN_RATIO and float(grayscale.mean()) <= 16
+
+
+class BlackScreenState:
+    """进程内黑屏去重状态；不依赖 Redis，避免重复提示同一用户的连续黑屏。"""
+
+    def __init__(self):
+        self._active_users: set[str] = set()
+        self._lock = threading.Lock()
+
+    def mark_black(self, user_id: str) -> bool:
+        """记录黑屏并返回本次是否首次告警。"""
+        with self._lock:
+            if user_id in self._active_users:
+                return False
+            self._active_users.add(user_id)
+            return True
+
+    def clear(self, user_id: str) -> None:
+        """收到有效非黑屏画面后解除该用户的黑屏状态。"""
+        with self._lock:
+            self._active_users.discard(user_id)
 
 # 全局识别器池：预创建 N 个实例（模型只加载一次），多请求借不同实例真并行。
 _proctor_pool = ProctorPool()
+_black_screen_state = BlackScreenState()
 
 
 def pool_status() -> dict:
@@ -60,7 +99,7 @@ def _build_face_angles(
     return FaceAngleThresholds(**provided)
 
 
-def _to_detection_data(result: ProctorResult) -> DetectionData:
+def _to_detection_data(result: ProctorResult, user_id: str | None = None) -> DetectionData:
     """把 ml 层的 ProctorResult 映射为对外的结构化响应数据。"""
     return DetectionData(
         warning=result.warning,
@@ -68,7 +107,22 @@ def _to_detection_data(result: ProctorResult) -> DetectionData:
         action_label=result.action_label,
         warning_count=result.warning_count,
         person_count=result.person_count,
+        user_id=user_id,
     )
+
+
+def _black_screen_response(user_id: str) -> ApiResponse:
+    notify = _black_screen_state.mark_black(user_id)
+    data = DetectionData(
+        user_id=user_id,
+        warning=True,
+        action_type=ActionType.BLACK_SCREEN,
+        action_label=BLACK_SCREEN_EXCEPTION_MESSAGE,
+        exception_code=BLACK_SCREEN_EXCEPTION_CODE,
+        exception_message=BLACK_SCREEN_EXCEPTION_MESSAGE,
+        notify=notify,
+    )
+    return ApiResponse.success(data=data, message="检测到黑屏！")
 
 
 def analyze_test_image(
@@ -107,6 +161,7 @@ def analyze_test_image(
 
 async def analyze_uploaded_face(
     file: UploadFile,
+    user_id: str,
     max_left_angle: float | None = None,
     max_right_angle: float | None = None,
     max_up_angle: float | None = None,
@@ -116,7 +171,11 @@ async def analyze_uploaded_face(
 
     4 个面部角度阈值参数均可选：不传则用代码默认值。
     """
-    # 1. 校验文件类型
+    # 1. 校验用户标识和文件类型
+    if not user_id.strip():
+        return ApiResponse.error(
+            code=StatusCode.BAD_REQUEST, message="user_id 不能为空"
+        )
     if file.content_type and not file.content_type.startswith(ALLOWED_CONTENT_PREFIX):
         return ApiResponse.error(
             code=StatusCode.BAD_REQUEST,
@@ -141,6 +200,9 @@ async def analyze_uploaded_face(
     try:
         with Image.open(io.BytesIO(file_bytes)) as image:
             rgb_image = image.convert("RGB")
+        if is_black_screen(rgb_image):
+            return _black_screen_response(user_id)
+        _black_screen_state.clear(user_id)
         result = await run_in_threadpool(
             _proctor_pool.analyze, rgb_image, face_angles
         )
@@ -151,4 +213,6 @@ async def analyze_uploaded_face(
             message="图片解析失败，请确认上传的是有效图片",
         )
 
-    return ApiResponse.success(data=_to_detection_data(result), message="识别成功")
+    return ApiResponse.success(
+        data=_to_detection_data(result, user_id=user_id), message="识别成功"
+    )

@@ -37,6 +37,7 @@ class ActionType(str, Enum):
     PHONE_CALL = "phone_call"    # 疑似打电话
     STRETCH_ARM = "stretch_arm"  # 伸展胳膊
     MULTI_PERSON = "multi_person"  # 多人出现
+    BLACK_SCREEN = "black_screen"  # 截图几乎全黑
 
 
 class DetectionData(BaseModel):
@@ -50,6 +51,10 @@ class DetectionData(BaseModel):
     action_label: str = "正常考试中"    # 中文可读描述
     warning_count: int = 0             # 累计告警次数
     person_count: int = 1              # 检测到的人数
+    user_id: Optional[str] = None      # 上传请求中的用户标识
+    exception_code: Optional[int] = None
+    exception_message: Optional[str] = None
+    notify: bool = False               # 是否需要向上游发送本次异常提示
 
 
 class ApiResponse(BaseModel):

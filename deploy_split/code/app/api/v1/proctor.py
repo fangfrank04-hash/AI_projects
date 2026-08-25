@@ -44,6 +44,7 @@ def ping():
 @router.post("/upload_face", response_model=ApiResponse)
 async def upload_face(
     file: UploadFile = File(...),
+    user_id: str = Form(..., description="用户 ID，必传"),
     max_left_angle: Optional[float] = Form(None, description="左右角 > 该值→向左看，不传用默认 6"),
     max_right_angle: Optional[float] = Form(None, description="左右角 < 该值→向右看，不传用默认 -6"),
     max_up_angle: Optional[float] = Form(None, description="上下角 > 该值→向上看，不传用默认 6"),
@@ -55,6 +56,7 @@ async def upload_face(
     """
     return await proctor_service.analyze_uploaded_face(
         file,
+        user_id=user_id,
         max_left_angle=max_left_angle,
         max_right_angle=max_right_angle,
         max_up_angle=max_up_angle,
