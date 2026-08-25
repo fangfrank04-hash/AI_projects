@@ -34,8 +34,11 @@ if (Test-Path $OutputPath) {
 
 Write-Host "[1/4] 导出 git 已跟踪的文件（自动排除 AI 工具目录/镜像 tar/.venv）..."
 New-Item -ItemType Directory -Path $OutputPath | Out-Null
-& $git archive HEAD | tar -x -C $OutputPath
+$zipPath = Join-Path $env:TEMP "aiproctor_export.zip"
+& $git archive --format=zip --output=$zipPath HEAD
 if ($LASTEXITCODE -ne 0) { Write-Host "[错误] 导出失败" -ForegroundColor Red; exit 1 }
+Expand-Archive -Path $zipPath -DestinationPath $OutputPath -Force
+Remove-Item $zipPath
 
 Write-Host "[2/4] 在新目录初始化全新 git 仓库..."
 Push-Location $OutputPath
