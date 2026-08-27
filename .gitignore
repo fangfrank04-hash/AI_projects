@@ -59,4 +59,5 @@ _temp_*/
 
 # Generated deployment artifacts
 deploy_split/*.tar
+deploy_split/wheels_linux/
 *.bak_v*
