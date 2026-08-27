@@ -62,4 +62,9 @@ deploy_split/*.tar
 deploy_split/wheels_linux/
 deploy_split/wheels_win/
 deploy_split/*.exe
+# 内网交付物文件夹/压缩包（neiwang 已传内网，neiwang2 为补充件）
+deploy_split/neiwang/
+deploy_split/neiwang.zip
+deploy_split/neiwang2/
+deploy_split/neiwang2.zip
 *.bak_v*
