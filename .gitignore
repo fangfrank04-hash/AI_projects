@@ -60,4 +60,6 @@ _temp_*/
 # Generated deployment artifacts
 deploy_split/*.tar
 deploy_split/wheels_linux/
+deploy_split/wheels_win/
+deploy_split/*.exe
 *.bak_v*
