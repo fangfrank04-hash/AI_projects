@@ -8,7 +8,7 @@ from PIL import Image
 
 from app.main import app
 from app.ml.image_proctor import ProctorResult
-from app.schemas.proctor import StatusCode
+from app.schemas.proctor import ActionType, StatusCode
 from app.services.proctor_service import is_black_screen
 
 client = TestClient(app)
@@ -82,30 +82,61 @@ class ApiResponseStructureTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(StatusCode.BAD_REQUEST, resp.json()["code"])
 
-    def test_black_screen_notifies_only_once_until_a_non_black_image_arrives(self):
+    def test_black_screen_reports_first_three_then_repeat_code(self):
         black_image = _make_image_bytes(color=(0, 0, 0))
         files = {"file": ("black.jpg", black_image, "image/jpeg")}
 
-        first = client.post("/upload_face", files=files, data={"user_id": "black-user"})
-        second = client.post("/upload_face", files=files, data={"user_id": "black-user"})
+        # 连续 3 次黑屏：正常上报，编码 1001
+        for _ in range(3):
+            body = client.post(
+                "/upload_face", files=files, data={"user_id": "black-user"}
+            ).json()
+            self.assertEqual(StatusCode.SUCCESS, body["code"])
+            self.assertEqual("检测到黑屏！", body["message"])
+            self.assertEqual(1001, body["data"]["exception_code"])
+            self.assertTrue(body["data"]["notify"])
 
-        self.assertEqual(StatusCode.SUCCESS, first.json()["code"])
-        self.assertEqual("检测到黑屏！", first.json()["message"])
-        self.assertEqual(1001, first.json()["data"]["exception_code"])
-        self.assertTrue(first.json()["data"]["notify"])
-        self.assertFalse(second.json()["data"]["notify"])
+        # 第 4 次黑屏：视为重复，编码 1002 且不再上报
+        fourth = client.post(
+            "/upload_face", files=files, data={"user_id": "black-user"}
+        ).json()
+        self.assertEqual(1002, fourth["data"]["exception_code"])
+        self.assertEqual("重复告警", fourth["data"]["exception_message"])
+        self.assertFalse(fourth["data"]["notify"])
 
+        # 出现正常画面后再次黑屏：重新计数
         with patch("app.services.proctor_service._proctor_pool.analyze", return_value=ProctorResult()):
             normal = client.post(
                 "/upload_face",
                 files={"file": ("normal.jpg", _make_image_bytes(color=(60, 60, 60)), "image/jpeg")},
                 data={"user_id": "black-user"},
             )
-        third = client.post("/upload_face", files=files, data={"user_id": "black-user"})
-
         self.assertEqual(StatusCode.SUCCESS, normal.json()["code"])
         self.assertIsNone(normal.json()["data"]["exception_code"])
-        self.assertTrue(third.json()["data"]["notify"])
+
+        fifth = client.post(
+            "/upload_face", files=files, data={"user_id": "black-user"}
+        ).json()
+        self.assertEqual(1001, fifth["data"]["exception_code"])
+        self.assertTrue(fifth["data"]["notify"])
+
+    @patch("app.services.proctor_service._proctor_pool.analyze")
+    def test_repeated_violation_reports_three_times_then_repeat_code(self, analyze):
+        analyze.return_value = ProctorResult(
+            warning=True, action_type=ActionType.TURN_HEAD, action_label="转头"
+        )
+        files = {"file": ("face.jpg", _make_image_bytes(), "image/jpeg")}
+        results = []
+        for _ in range(4):
+            body = client.post(
+                "/upload_face", files=files, data={"user_id": "turn-user"}
+            ).json()
+            results.append((body["data"]["exception_code"], body["data"]["notify"]))
+
+        # 前 3 次正常上报（转头无原编码），第 4 次重复返回 1002
+        self.assertEqual(
+            [(None, True), (None, True), (None, True), (1002, False)], results
+        )
 
     def test_black_screen_uses_a_conservative_near_black_threshold(self):
         self.assertTrue(is_black_screen(Image.new("RGB", (100, 100), (3, 3, 3))))
