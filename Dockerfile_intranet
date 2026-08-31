@@ -1,0 +1,171 @@
+# ============================================================
+# AI 监考服务 (AiProctor) —— 内网专用 Dockerfile
+# 参考组长 IARM-APP 部署规范：多阶段构建 + 麒麟 V10 基础镜像
+#
+# 构建频率：依赖或代码变更时
+# 前置条件：内网基础镜像 img-klas10-x86 已 docker load
+#
+# 内网构建命令（hosts 网络模式，无需额外配置）：
+#   docker build --no-cache --network=host -f Dockerfile_intranet -t aiproctor:1.3.0 .
+# ============================================================
+
+# ====================== 阶段一：builder（Python 编译 + 依赖安装） ======================
+FROM ccdc-docker.pkg.coding.ccdc.com.cn/scm/docker-base/img-klas10-x86:20250709-pro AS builder
+
+ARG python_version="python3.12.3"
+ARG python_path="python3.12"
+ARG pip_path="pip3.12"
+ARG down_python_url="http://ccdc-generic.pkg.coding.ccdc.com.cn/scm/zipshare/CX/${python_version}.zip?version=20260623"
+
+LABEL maintainer="AiProctor Team" \
+      description="AiProctor builder (Kylin V10 x86_64 with ${python_version})"
+
+# 忽略 pip install 的 root 警告
+ENV PIP_ROOT_USER_ACTION=ignore
+
+RUN echo "================ python 构建阶段：安装编译工具和系统依赖库（Python 编译需要） ====================" && \
+    yum update -y && \
+    yum install -y gcc gcc-c++ make libffi-devel zlib-devel openssl-devel bzip2-devel xz-devel sqlite-devel cyrus-sasl-devel && \
+    yum install -y openssl libffi zlib bzip2 xz sqlite && \
+    echo "================ python 构建阶段：opencv 系统依赖库 ================" && \
+    yum install -y mesa-libGL glib2 libSM libXext libXrender libgomp libXau libxcb libX11 && \
+    yum clean all && \
+    rm -rf /var/cache/yum/*
+
+# 设置环境变量
+ENV PATH=/opt/${python_path}/bin:${PATH}
+
+RUN echo "================ python 构建阶段：安装${python_version}源码并编译 =======================" && \
+    cd /tmp && \
+    echo "22.25.5.179 ccdc-generic.pkg.coding.ccdc.com.cn" >> /etc/hosts && \
+    curl -fSL "${down_python_url}" -o /tmp/${python_version}.zip && \
+    echo "下载${python_version}成功" && \
+    unzip -j /tmp/${python_version}.zip "*.tgz" -d /tmp && \
+    mkdir -p /tmp/${python_version} && \
+    tar xzf /tmp/*.tgz --strip-components=1 -C /tmp/${python_version} && \
+    cd /tmp/${python_version} && \
+    mkdir -p build && \
+    ./configure --prefix=/opt/${python_path} && \
+    make -j$(nproc) && \
+    make install && \
+    ln -sf /opt/${python_path}/bin/${python_path} /opt/${python_path}/bin/python && \
+    ln -sf /opt/${python_path}/bin/${pip_path} /opt/${python_path}/bin/pip && \
+    rm -rf /tmp/Python* /tmp/python*
+
+# 验证安装
+RUN echo "================ python 构建阶段：完成，验证信息如下 =======================" && \
+    python --version && \
+    pip --version && \
+    python -c "import ssl, ctypes, zlib, sqlite3; print('All modules OK')"
+
+ARG pip_zip="pypi.zip"
+ARG down_pip_url="http://ccdc-generic.pkg.coding.ccdc.com.cn/scm/zipshare/86/${pip_zip}?version=20260522"
+
+# 创建工作目录
+WORKDIR /build
+
+# 复制依赖清单
+COPY requirements.txt .
+COPY pyproject.toml ./
+COPY uv.lock ./
+
+# 忽略 pip install 的 root 警告 + 内网 UV 源配置（与 devops/pip.conf 严格对齐）
+ENV PIP_ROOT_USER_ACTION=ignore \
+    PIP_NO_CACHE_DIR=1 \
+    UV_INDEX_URL="http://ccdc-pypi.pkg.coding.ccdc.com.cn/scm/pub-pypi/simple" \
+    UV_TRUSTED_HOST="ccdc-pypi.pkg.coding.ccdc.com.cn" \
+    UV_FIND_LINKS="/tmp/wheelhouse/pypi /tmp" \
+    UV_HTTP_TIMEOUT="600"
+
+RUN echo "================ pip 依赖安装阶段：下载例外 Python 包 =======================" && \
+    echo "22.25.5.179 ccdc-generic.pkg.coding.ccdc.com.cn" >> /etc/hosts && \
+    echo "22.25.5.179 ccdc-pypi.pkg.coding.ccdc.com.cn" >> /etc/hosts && \
+    curl -fSL "${down_pip_url}" -o /tmp/wheelhouse.zip && \
+    echo "下载${pip_zip}成功" && \
+    unzip /tmp/wheelhouse.zip -d /tmp/wheelhouse && \
+    ls -la /tmp/wheelhouse && \
+    echo "================ pip 依赖安装阶段：查看 conf ================" && \
+    env|grep UV && \
+    python --version && \
+    echo "================ pip 依赖安装阶段：UV 安装 ================" && \
+    mkdir -p /tmp/pip-tmp && \
+    TMPDIR=/tmp/pip-tmp pip install --no-cache-dir \
+    --index-url ${UV_INDEX_URL} \
+    --trusted-host ${UV_TRUSTED_HOST} \
+    --find-links /tmp/wheelhouse/pypi --find-links /tmp \
+    --timeout 600 \
+    uv && \
+    uv --version && \
+    uv venv --seed /opt/venv && \
+    echo "================ pip 依赖安装阶段：requirements.txt 安装 ================" && \
+    uv pip install --python /opt/venv/bin/python \
+    --find-links /tmp/wheelhouse/pypi --find-links /tmp \
+    --no-cache -r requirements.txt && \
+    rm -rf pip-tmp wheelhouse* && \
+    echo "================ pip 依赖安装阶段：完成 ================" && \
+    echo "已安装包数量: $(uv pip list --format=freeze --python /opt/venv/bin/python | wc -l)"
+
+# ====================== 阶段二：runtime（最终运行镜像，不含构建工具） ======================
+FROM ccdc-docker.pkg.coding.ccdc.com.cn/scm/docker-base/img-klas10-x86:20250709-pro AS runtime
+
+RUN echo "================ 构建运行镜像阶段：init ================" && \
+    echo "================ python 构建阶段：opencv 系统依赖库 ================" && \
+    yum install -y mesa-libGL glib2 libSM libXext libXrender libgomp libXau libxcb libX11 && \
+    yum clean all && \
+    rm -rf /var/cache/yum/*
+
+LABEL maintainer="AiProctor Team"
+LABEL description="AI 监考服务 (AiProctor)"
+
+# 从 builder 拷贝 Python 运行时 + 虚拟环境（路径完全一致，venv 内解释器引用才有效）
+COPY --from=builder /opt/${python_path} /opt/${python_path}
+COPY --from=builder /opt/venv /opt/venv
+
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:/opt/${python_path}/bin:${PATH}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    MALLOC_TRIM_THRESHOLD=65536 \
+    MALLOC_MMAP_THRESHOLD=131072 \
+    PYTHONMALLOC=pymalloc \
+    PYTHONUNBUFFERED=1 \
+    TZ=Asia/Shanghai \
+    LANG=C.UTF-8
+
+WORKDIR /app/AiProctor0623
+
+ENV ENV_FILE=.env
+
+RUN python --version
+
+RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo 'alias ll="ls -lh --time-style=+\'%Y-%m-%d %H:%M:%S\'"' >> /etc/bashrc
+
+RUN echo "================ 构建运行镜像阶段：copy 项目代码 ================"
+
+# 复制业务代码与资源（AiProctor 的目录结构）
+COPY app ./app
+COPY assets ./assets
+COPY models ./models
+COPY .env.example ./
+COPY entrypoint.sh /app/AiProctor0623/entrypoint.sh
+
+# 处理换行符（防止 Windows 的 CRLF 在 Linux 下报错）+ 给执行权限
+RUN sed -i 's/\r$//' /app/AiProctor0623/entrypoint.sh && chmod 777 /app/AiProctor0623/entrypoint.sh
+
+# 创建日志目录并授权
+RUN mkdir -p /app/AiProctor0623/logs && \
+    chmod -R 777 /app/AiProctor0623
+
+# 项目根目录作为 Python 模块查找路径（import app.xxx 才能找到）
+ENV PYTHONPATH=/app/AiProctor0623
+
+RUN pwd
+RUN ls -laR
+
+# 暴露端口：AiProctor 默认 8000
+EXPOSE 8000
+
+RUN echo "================ 构建运行镜像阶段：启动脚本 ================"
+
+# 启动命令（通过 entrypoint.sh 启动，方便后续扩展）
+CMD ["sh", "/app/AiProctor0623/entrypoint.sh"]

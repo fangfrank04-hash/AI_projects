@@ -1,0 +1,29 @@
+# ============================================================
+# AI 监考服务 (AiProctor) —— K8s Service
+# 作用：把 Pod 的 8000 端口暴露成集群内可访问的 Service
+#
+# 用法：
+#   1. 如果只有集群内部调用（网关/其他服务），保持 type: ClusterIP 即可
+#   2. 如果需要内网 IP 直接访问，改 type: LoadBalancer 或 NodePort（找运维配置）
+#   3. 若有 ELB 配置（外网/内网负载均衡），按组长规范：
+#      把本文件内容追加到 configmaps.yaml 末尾，中间用 --- 分隔
+# ============================================================
+kind: Service
+apiVersion: v1
+metadata:
+  name: wl-svc-aiproctor
+  annotations:
+    description: AI 监考服务 (AiProctor) Service
+spec:
+  # 匹配 workloads.yaml 中 Deployment 的 Pod 标签
+  selector:
+    app: wl-deploy-bg-aiproctor
+  ports:
+    - name: http
+      protocol: TCP
+      # Service 端口（其他服务访问的端口）
+      port: 8000
+      # Pod 容器端口（和 containerPort 一致）
+      targetPort: 8000
+  # 默认集群内访问；若需要暴露到集群外改为 NodePort 或 LoadBalancer
+  type: ClusterIP

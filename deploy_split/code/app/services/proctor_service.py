@@ -27,6 +27,11 @@ BLACK_SCREEN_EXCEPTION_CODE = 1001
 BLACK_SCREEN_EXCEPTION_MESSAGE = "检测到黑屏"
 BLACK_SCREEN_PIXEL_THRESHOLD = 16
 BLACK_SCREEN_MIN_RATIO = 0.995
+# 重复告警编码：同一用户同一种违规连续出现超过上报上限后，从第 4 次起返回该编码
+REPEAT_EXCEPTION_CODE = 1002
+REPEAT_EXCEPTION_MESSAGE = "重复告警"
+# 同一用户同一种违规连续上报次数上限（第 4 次起视为重复，不再报错）
+MAX_CONSECUTIVE_REPORTS = 3
 
 
 def is_black_screen(image: Image.Image) -> bool:
@@ -40,29 +45,38 @@ def is_black_screen(image: Image.Image) -> bool:
     return near_black_ratio >= BLACK_SCREEN_MIN_RATIO and float(grayscale.mean()) <= 16
 
 
-class BlackScreenState:
-    """进程内黑屏去重状态；不依赖 Redis，避免重复提示同一用户的连续黑屏。"""
+class RepeatViolationState:
+    """进程内连续违规去重状态（不依赖 Redis）。
+
+    规则：同一用户同一种违规连续出现时，前 MAX_CONSECUTIVE_REPORTS 次正常上报，
+    之后每次都标记为"重复"（由上游根据重复编码 1002 决定不再记为新报错）；
+    出现不同违规类型或正常画面时，重新开始计数。
+    """
 
     def __init__(self):
-        self._active_users: set[str] = set()
+        # user_id -> (当前连续违规类型, 连续次数)
+        self._states: dict[str, tuple[ActionType, int]] = {}
         self._lock = threading.Lock()
 
-    def mark_black(self, user_id: str) -> bool:
-        """记录黑屏并返回本次是否首次告警。"""
+    def record(self, user_id: str, action_type: ActionType) -> bool:
+        """记录一次违规，返回本次是否需要正常上报（False=已重复，仅返回重复编码）。"""
         with self._lock:
-            if user_id in self._active_users:
-                return False
-            self._active_users.add(user_id)
-            return True
+            current = self._states.get(user_id)
+            if current and current[0] == action_type:
+                count = current[1] + 1
+            else:
+                count = 1
+            self._states[user_id] = (action_type, count)
+            return count <= MAX_CONSECUTIVE_REPORTS
 
     def clear(self, user_id: str) -> None:
-        """收到有效非黑屏画面后解除该用户的黑屏状态。"""
+        """该用户出现正常画面（无违规）时清空连续计数。"""
         with self._lock:
-            self._active_users.discard(user_id)
+            self._states.pop(user_id, None)
 
 # 全局识别器池：预创建 N 个实例（模型只加载一次），多请求借不同实例真并行。
 _proctor_pool = ProctorPool()
-_black_screen_state = BlackScreenState()
+_repeat_violation_state = RepeatViolationState()
 
 
 def pool_status() -> dict:
@@ -111,8 +125,23 @@ def _to_detection_data(result: ProctorResult, user_id: str | None = None) -> Det
     )
 
 
+def _mark_repeat_status(data: DetectionData, user_id: str) -> None:
+    """按"连续重复只报 3 次"规则刷新 data 的 exception_code/notify 字段。
+
+    违规：前 3 次保留原编码、notify=True；第 4 次起编码改为重复(1002)、notify=False。
+    正常：清空该用户的连续计数。
+    """
+    if not data.warning:
+        _repeat_violation_state.clear(user_id)
+        return
+    should_report = _repeat_violation_state.record(user_id, data.action_type)
+    data.notify = should_report
+    if not should_report:
+        data.exception_code = REPEAT_EXCEPTION_CODE
+        data.exception_message = REPEAT_EXCEPTION_MESSAGE
+
+
 def _black_screen_response(user_id: str) -> ApiResponse:
-    notify = _black_screen_state.mark_black(user_id)
     data = DetectionData(
         user_id=user_id,
         warning=True,
@@ -120,8 +149,8 @@ def _black_screen_response(user_id: str) -> ApiResponse:
         action_label=BLACK_SCREEN_EXCEPTION_MESSAGE,
         exception_code=BLACK_SCREEN_EXCEPTION_CODE,
         exception_message=BLACK_SCREEN_EXCEPTION_MESSAGE,
-        notify=notify,
     )
+    _mark_repeat_status(data, user_id)
     return ApiResponse.success(data=data, message="检测到黑屏！")
 
 
@@ -202,7 +231,6 @@ async def analyze_uploaded_face(
             rgb_image = image.convert("RGB")
         if is_black_screen(rgb_image):
             return _black_screen_response(user_id)
-        _black_screen_state.clear(user_id)
         result = await run_in_threadpool(
             _proctor_pool.analyze, rgb_image, face_angles
         )
@@ -213,6 +241,7 @@ async def analyze_uploaded_face(
             message="图片解析失败，请确认上传的是有效图片",
         )
 
-    return ApiResponse.success(
-        data=_to_detection_data(result, user_id=user_id), message="识别成功"
-    )
+    # 连续重复违规去重：同一用户同一种违规前 3 次正常报，第 4 次起返回重复编码 1002
+    data = _to_detection_data(result, user_id=user_id)
+    _mark_repeat_status(data, user_id)
+    return ApiResponse.success(data=data, message="识别成功")

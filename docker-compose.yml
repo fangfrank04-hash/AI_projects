@@ -1,28 +1,35 @@
-# AI 监考服务 —— 内网部署启动脚本
+# AI 监考服务 —— 内网部署启动脚本（适配 Kylin V10 + Dockerfile_intranet）
 #
-# 用法（在内网服务器、docker-compose.yml 所在目录执行）：
-#   1. 先加载镜像：   docker load -i aiproctor_1.1.0.tar
-#   2. 启动服务：     docker compose up -d
-#   3. 查看日志：     docker compose logs -f
-#   4. 停止服务：     docker compose down
+# 用法（在内网服务器、本文件所在目录执行）：
+#   1. 构建镜像（首次或代码/依赖变更时）：
+#      docker build --no-cache --network=host -f Dockerfile_intranet -t aiproctor:1.2.0 .
+#   2. 或直接 load 现成镜像包：
+#      docker load -i aiproctor_1.2.0.tar
+#   3. 启动服务：     docker compose up -d
+#   4. 查看日志：     docker compose logs -f
+#   5. 停止服务：     docker compose down
 #
-# 说明：镜像已自包含（Python 3.12.9 + 所有库 + 代码 + 模型），内网无需联网。
+# 说明：
+#   - 镜像内 Python 3.12.3 + 全部依赖 + 代码 + 模型都已自带，内网无需联网
+#   - 通过 WORKERS 可调节多进程数（服务器核多可设 2~4，默认 1）
 services:
   aiproctor:
-    image: aiproctor:1.1.0        # 与 docker build -t 的名字一致；docker load 后就是这个名字
+    image: aiproctor:1.3.0        # 与 docker build -t / docker load 后的名字一致
     container_name: aiproctor
     ports:
-      - "8000:8000"               # 左边是宿主机端口，如内网要用别的端口改左边即可，如 "9000:8000"
-    restart: unless-stopped       # 容器异常退出/服务器重启后自动拉起
-    # 可选：复制 .env.example 为 .env 后，可覆盖识别阈值；文件不存在时使用代码默认值。
+      - "8000:8000"               # 左边是宿主机端口，如需改端口只改左边，如 "9000:8000"
+    restart: unless-stopped       # 容器异常退出 / 服务器重启后自动拉起
+    # 可选：复制 .env.example 为 .env，可覆盖识别阈值等；文件不存在使用代码默认值
     env_file:
       - path: .env
         required: false
     environment:
       - LOG_LEVEL=INFO
-    # 健康检查：定时打 /ping，容器状态里能看到 healthy/unhealthy
+      - WORKERS=1                 # uvicorn 多进程数，服务器核多可改 2、4
+      - PORT=8000
+    # 健康检查：定时打 /ping，容器状态能看到 healthy / unhealthy
     healthcheck:
-      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ping')"]
+      test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ping')"]
       interval: 30s
       timeout: 5s
       retries: 3

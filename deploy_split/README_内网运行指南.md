@@ -68,10 +68,13 @@ pip install --no-index --find-links deploy_split\wheels_win -r requirements.txt
 ### 第 3 步：跑测试验证环境
 
 ```bat
-python -m pytest tests/ -q
+python scripts\run_all_tests.py --logic-only
 ```
 
-期望最后一行类似 `56 passed`（数字可能随版本变多）。
+期望看到 `全部通过 ✓`（9 个逻辑用例，验证重复告警规则核心逻辑，纯标准库无需装包）。
+
+> 注意：不要用 `pytest tests/`——离线依赖包里没有 pytest 和 httpx，装不上。
+> 分层测试脚本说明见「六、测试脚本使用说明」。
 
 ### 第 4 步：启动服务调试
 
@@ -138,7 +141,52 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 
 ---
 
-## 四、常见问题（FAQ）
+## 四、测试脚本使用说明（内网验证全套）
+
+> 所有脚本在 `code/scripts/` 下，**纯 Python 标准库，不需要装任何包**。
+> 在 code 目录下执行（即 `app/` 文件夹所在的目录）。
+
+### 4.1 一键全跑（推荐，记住这一条就够）
+
+```bash
+python scripts/run_all_tests.py                    # 服务已启动时：逻辑+冒烟+规则+并发 全跑
+python scripts/run_all_tests.py --logic-only       # 服务没启动时：只跑逻辑验证
+python scripts/run_all_tests.py --url http://22.25.5.10:8000   # 指定服务地址
+```
+
+流程：先跑逻辑验证（不需要服务）→ 探测服务在不在 → 在就接着跑接口冒烟 + 重复规则实测 → 汇总 PASS/FAIL。
+
+### 4.2 分层脚本（单独跑某一个时用）
+
+| 脚本 | 干什么 | 什么时候用 | 需要服务 |
+|---|---|---|---|
+| `verify_repeat_logic.py` | 重复告警规则逻辑验证（9 用例） | 改了 `proctor_service.py` 后 | 否 |
+| `smoke_api.py` | 接口冒烟（8 项：健康/参数校验/上传/黑屏） | **任何改动后**、怀疑服务异常时 | 是 |
+| `verify_repeat_http.py` | 重复规则端到端实测（8 项含并发安全） | 改了告警/去重逻辑后 | 是 |
+| `load_test.py` | 并发压测（QPS/延迟分布） | 上线前摸底、调 workers/pool 参数 | 是 |
+
+### 4.3 改代码后的标准验证流程
+
+```bash
+# 1. 替换 code/ 里的代码文件
+# 2. 重启服务（Docker 方式）
+docker compose restart
+# 3. 一键验证
+python scripts/run_all_tests.py
+```
+
+### 4.4 压测示例
+
+```bash
+python scripts/load_test.py --concurrency 8 --total 80
+# 看 QPS 和 P95/P99 延迟；4核机 workers=2 pool=2 参考值见 docker-compose.yml 注释
+```
+
+> 注意：`tests/` 下的 `test_*.py`（pytest 格式）是外网开发用的，内网离线包装不上 pytest/httpx，跑不了；内网一律用 `scripts/` 下的脚本。
+
+---
+
+## 五、常见问题（FAQ）
 
 | 报错/疑问 | 原因和解决 |
 |---|---|
@@ -149,11 +197,11 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 | `pip` 找不到 | 没激活虚拟环境（`.venv\Scripts\activate` 或 `source .venv/bin/activate`） |
 | 内网有 poetry.lock / uv.lock 要用吗 | 不用。离线安装只认 `requirements.txt` + wheels 文件夹，lock 文件是外网开发工具的产物 |
 | 改了代码要重装依赖吗 | 不用。依赖只在 requirements.txt 变化时才重装；平时只重启服务 |
-| 怎么确认线上跑的是新代码 | 启动日志第一行有版本号（当前 1.2.0）；或 `curl /ping` 看模型池状态 |
+| 怎么确认线上跑的是新代码 | 启动日志第一行有版本号（当前 1.3.0）；或 `curl /ping` 看模型池状态 |
 
 ---
 
-## 五、交付物清单速查
+## 六、交付物清单速查
 
 | 文件/文件夹 | 给谁用 | 何时用 |
 |---|---|---|

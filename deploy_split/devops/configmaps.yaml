@@ -1,0 +1,107 @@
+# ============================================================
+# AI 监考服务 (AiProctor) —— K8s ConfigMap
+# 存放所有环境变量配置（LOG_LEVEL、识别阈值、并发参数等）
+# 与 workloads.yaml 中的 configMapRef.name: aiproctor-env-config 对应
+#
+# 生成方式（和组长规范保持一致，从 .env 文件生成）：
+#   1. 先准备环境变量文件 .env.sit1.k8s（模板见下方注释块）
+#   2. 执行命令生成 yaml：
+#      kubectl create configmap aiproctor-env-config \
+#          --from-env-file=.env.sit1.k8s \
+#          --dry-run=client -o yaml > configmaps.yaml
+#   3. 若有 ELB 的 service.yaml 要合并，追加到文件末尾，用 --- 分隔
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiproctor-env-config
+  annotations:
+    description: AI 监考服务 (AiProctor) 运行环境变量
+data:
+  # ========== 服务基础配置 ==========
+  APP_NAME: "AiProctor 智能监考"
+  APP_DESCRIPTION: "AI智能监考API服务"
+  APP_VERSION: "1.2.0"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  LOG_LEVEL: "INFO"
+
+  # ========== 人脸识别角度阈值（单位：度） ==========
+  # 左右转头：超过 MAX_LEFT_ANGLE（默认左偏 6°）或低于 MAX_RIGHT_ANGLE（默认右偏 -6°）视为离开屏幕
+  MAX_LEFT_ANGLE: "6"
+  MAX_RIGHT_ANGLE: "-6"
+  # 上下抬头低头：超过 MAX_UP_ANGLE（上抬 6°）或低于 MAX_DOWN_ANGLE（下低 -0.5°）视为离开
+  MAX_UP_ANGLE: "6"
+  MAX_DOWN_ANGLE: "-0.5"
+
+  # ========== 玩手机检测 ==========
+  # 手腕到耳朵的距离比值（越靠近耳朵说明在举手机），越小越严格
+  PHONE_WRIST_EAR_DIST: "0.55"
+  # 小臂角度（°），小于该值判定为"弯曲贴近耳朵"（玩手机）
+  PHONE_ARM_ANGLE: "30"
+
+  # ========== 举手/伸懒腰/侧身/多人等姿态阈值 ==========
+  STRETCH_ARM_ANGLE: "140"
+  HORIZONTAL_STRETCH_ARM_ANGLE: "155"
+  HORIZONTAL_STRETCH_VISIBILITY: "0.4"
+  HORIZONTAL_STRETCH_ARM_LENGTH: "1.05"
+  HORIZONTAL_STRETCH_WRIST_EAR_DIST: "1.6"
+  ELBOW_STRETCH_VISIBILITY: "0.25"
+  ELBOW_STRETCH_MAX_DY: "0.5"
+  ELBOW_STRETCH_MIN_REACH: "0.7"
+  TURN_BODY_SHOULDER_DIST: "0.25"
+  SEATED_TURN_MAX_HIP_VISIBILITY: "0.05"
+  VISIBILITY_THRESHOLD: "0.5"
+
+  # ========== 多人检测 Fallback ==========
+  MULTI_PERSON_POSE_CONFIDENCE: "0.2"
+  MULTI_PERSON_MAX_POSES: "3"
+  MULTI_PERSON_MIN_SEPARATION: "0.15"
+
+  # ========== 并发控制（MediaPipe 模型池大小） ==========
+  # 每进程内加载 N 个模型，N=CPU核数/2 比较合理；uvicorn workers=2 时总体模型数 = PROCTOR_POOL_SIZE × workers
+  PROCTOR_POOL_SIZE: "2"
+
+# ============================================================
+# .env.sit1.k8s 模板（复制保存为 .env.sit1.k8s，改完用 kubectl 生成 configmaps.yaml）：
+# ------------------------------------------------------------
+# # 服务基础
+# APP_NAME=AiProctor 智能监考
+# APP_DESCRIPTION=AI智能监考API服务
+# APP_VERSION=1.2.0
+# HOST=0.0.0.0
+# PORT=8000
+# LOG_LEVEL=INFO
+#
+# # 人脸识别角度
+# MAX_LEFT_ANGLE=6
+# MAX_RIGHT_ANGLE=-6
+# MAX_UP_ANGLE=6
+# MAX_DOWN_ANGLE=-0.5
+#
+# # 玩手机检测
+# PHONE_WRIST_EAR_DIST=0.55
+# PHONE_ARM_ANGLE=30
+#
+# # 姿态阈值
+# STRETCH_ARM_ANGLE=140
+# HORIZONTAL_STRETCH_ARM_ANGLE=155
+# HORIZONTAL_STRETCH_VISIBILITY=0.4
+# HORIZONTAL_STRETCH_ARM_LENGTH=1.05
+# HORIZONTAL_STRETCH_WRIST_EAR_DIST=1.6
+# ELBOW_STRETCH_VISIBILITY=0.25
+# ELBOW_STRETCH_MAX_DY=0.5
+# ELBOW_STRETCH_MIN_REACH=0.7
+# TURN_BODY_SHOULDER_DIST=0.25
+# SEATED_TURN_MAX_HIP_VISIBILITY=0.05
+# VISIBILITY_THRESHOLD=0.5
+#
+# # 多人检测
+# MULTI_PERSON_POSE_CONFIDENCE=0.2
+# MULTI_PERSON_MAX_POSES=3
+# MULTI_PERSON_MIN_SEPARATION=0.15
+#
+# # 并发
+# PROCTOR_POOL_SIZE=2
+# ------------------------------------------------------------
+# ============================================================

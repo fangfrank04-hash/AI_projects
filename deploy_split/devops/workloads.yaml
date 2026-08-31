@@ -1,0 +1,132 @@
+# ============================================================
+# AI 监考服务 (AiProctor) —— K8s 工作负载 Deployment
+# 参考组长 IARM-APP 规范：2 副本 + 4C16G + 海光节点亲和 + Pod 反亲和
+#
+# 变量说明（由流水线自动注入，无需手动改）：
+#   $DOCKER_REPO   内网镜像仓库地址，如 ccdc-docker.pkg.coding.ccdc.com.cn/xxx
+#   $IMAGE_NAME    镜像名，如 aiproctor
+#   $IMAGE_TAG     镜像版本，如 1.2.0
+# ============================================================
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: wl-deploy-bg-aiproctor
+  annotations:
+    description: AI 监考服务 (AiProctor)
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wl-deploy-bg-aiproctor
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: wl-deploy-bg-aiproctor
+        version: v1
+    spec:
+      volumes:
+        # 日志挂载：emptyDir 单 Pod 本地盘；若需集中采集日志请改 hostPath 或 PVC
+        - name: vol-logs
+          emptyDir:
+            sizeLimit: 20Gi
+        # 上传/缓存文件目录（MediaPipe 临时模型文件、截图缓存等）
+        - name: vol-aiproctor-data
+          emptyDir:
+            sizeLimit: 20Gi
+      containers:
+        - name: container-1
+          image: $DOCKER_REPO/$IMAGE_NAME:$IMAGE_TAG
+          # 端口声明：AiProctor FastAPI 监听 8000
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          # 环境变量注入：从 ConfigMap（configmaps.yaml）读取 LOG_LEVEL、阈值等配置
+          envFrom:
+            - configMapRef:
+                name: aiproctor-env-config
+          # 资源限制：MediaPipe 人脸+姿态是 CPU 密集型，4C16G 起步
+          resources:
+            limits:
+              cpu: '4'
+              memory: 16Gi
+            requests:
+              cpu: '4'
+              memory: 16Gi
+          # 卷挂载：日志和工作目录
+          volumeMounts:
+            - name: vol-logs
+              mountPath: /app/AiProctor0623/logs
+            - name: vol-aiproctor-data
+              mountPath: /app/AiProctor0623/data
+          # ===================== 健康探针（新增，组长模板没有但生产必备） =====================
+          # 就绪探针：/ping 通了才会把流量切过来（防止模型加载中就接请求）
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          # 存活探针：挂了就自动重启 Pod
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: Always
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 90
+      dnsPolicy: ClusterFirst
+      securityContext: {}
+      # 镜像仓库拉取密钥（内网仓库需要）
+      imagePullSecrets:
+        - name: sk-devops-hub
+      schedulerName: default-scheduler
+      # 容忍度：节点 NotReady/Unreachable 时不立刻驱逐，等待 300s 给网络恢复机会
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 300
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: 300
+      affinity:
+        # Pod 反亲和：尽量把两个副本打散到不同可用区（避免单点故障）
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - wl-deploy-bg-aiproctor
+                topologyKey: topology.kubernetes.io/zone
+        # 节点亲和：必须调度到海光 x86 CPU 节点（国产 CPU，和组长规范一致）
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node.cpuType
+                    operator: In
+                    values:
+                      - x86_hygon
+  # 滚动更新策略：一次最多 +25%、-25%，保证升级期间服务可用
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  progressDeadlineSeconds: 600
